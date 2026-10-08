@@ -2,7 +2,7 @@ import * as THREE from 'three';
 // Versão publicada congelada enquanto o glow up é montado (os arquivos novos estão em obras)
 import { CONFIG, VERSAO } from './legado/config.js?v=3';
 import { criarBola, chutar, passo, noChao } from './legado/physics.js?v=3';
-import { criarPainel } from './painel.js?v=3';
+import { criarPainel } from './legado/painel.js?v=3';
 
 const GRAUS = Math.PI / 180;
 const PASSO_FISICA = 1 / 240; // a física roda em passos pequenos e fixos, independente do celular

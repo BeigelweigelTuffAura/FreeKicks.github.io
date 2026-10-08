@@ -83,9 +83,10 @@ export function montarBarreira(posBola, cfg = {}, aleatorio = Math.random) {
       progressoPulo: 0,              // 0 = no chão antes do pulo, 1 = pulo terminado
       pulo: {
         vai: pula,
-        atraso: c.atrasoPulo + (2 * s1 - 1) * c.variacaoAtraso,
-        altura: c.alturaPulo + (2 * s2 - 1) * c.variacaoPulo,
-        duracao: c.duracaoPulo * (0.95 + 0.1 * s3),
+        // (nunca antes do chute, e os pés nunca abaixo do chão, mesmo com os ajustes no zero)
+        atraso: Math.max(0, c.atrasoPulo + (2 * s1 - 1) * c.variacaoAtraso),
+        altura: Math.max(0, c.alturaPulo + (2 * s2 - 1) * c.variacaoPulo),
+        duracao: Math.max(0.05, c.duracaoPulo * (0.95 + 0.1 * s3)),
       },
       batida: 0,                     // força da última bolada (para o boneco reagir)
     });

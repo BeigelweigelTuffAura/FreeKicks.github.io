@@ -78,10 +78,11 @@ export const CONFIG = {
   // Cobrança atual (distância do centro do gol; ângulo + = à direita de quem cobra)
   falta: { distancia: 22, angulo: 0 },
 
-  // Câmera atrás da bola, estilo PES
+  // Câmera atrás do cobrador, estilo PES de PS2
   camera: {
-    atras: 6,             // m atrás da bola
+    atras: 6,             // m atrás do ponto entre a bola e o cobrador
     altura: 2.2,          // m do chão
+    pesoCobrador: 0.4,    // 0 = câmera atrás da bola, 1 = atrás do cobrador (no meio, os dois aparecem)
     inclinacao: 10,       // graus olhando para baixo
     fovMin: 40,           // campo de visão vertical mínimo
     larguraVisivel: 24,   // campo de visão horizontal mínimo (garante o gol inteiro no celular em pé)
@@ -89,13 +90,33 @@ export const CONFIG = {
 
     // Câmera aérea depois do chute (como nos jogos de falta do Click Jogos)
     aerea: true,
-    aereaAltura: 13,      // m do chão
-    aereaAtras: 7,        // m atrás da bola
-    aereaLado: 2,         // m para o lado (+ = direita de quem cobra)
+    aereaAltura: 11,      // m do chão
+    aereaAtras: 3,        // m atrás da bola
+    aereaLado: 9,         // m para o lado de fora da falta (mais = mais de lado)
     aereaAlvo: 0.5,       // para onde olha: 0 = bola, 1 = gol
-    aereaAproxima: 0.35,  // quanto a câmera anda junto com a bola em direção ao gol
+    aereaAproxima: 0.4,   // quanto a câmera anda junto com a bola em direção ao gol
     aereaTransicao: 0.3,  // s para trocar de câmera (0 = corte seco)
   },
+
+  // Mira: arrastar o dedo na tela mexe o alvo no gol
+  mira: {
+    sensibilidade: 1,     // 1 = o alvo acompanha o dedo; menos = mais fino
+    limite: 7,            // m para cada lado do meio do gol (dá para mirar fora e trazer com a curva)
+  },
+
+  // Treino livre: falta sorteada a cada cobrança (o botão "Falta fixa" ou o painel seguram a posição)
+  sorteio: {
+    distanciaMin: 18,     // m
+    distanciaMax: 33,     // m
+    anguloMax: 32,        // graus para cada lado
+  },
+
+  rastro: true,           // pontinhos atrás da bola durante o voo, para ver a curva
+
+  // Goleiro, barreira, cobrador, cenário e som: os padrões ficam nos próprios módulos
+  // (PADRAO_GOLEIRO em js/goleiro.js, PADRAO_BARREIRA em js/barreira.js, PADRAO_COBRANCA em js/jogadores.js,
+  // PADRAO_AUDIO em js/audio.js) e são copiados para cá quando o jogo abre. Para mudar um padrão, escreva aqui,
+  // por exemplo: goleiro: { reflexo: 0.35 },
 
   // Ritmo
   tempoMaxVoo: 4,         // s: encerra a cobrança mesmo se a bola não parar
