@@ -54,9 +54,27 @@ body {
   font-size: 14px;
 }
 
+#topo-direita {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 #versao {
   font-size: 11px;
   opacity: 0.75;
+}
+
+#botao-ajustes {
+  pointer-events: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
 }
 
 #info {
@@ -99,7 +117,7 @@ body {
 #botao-chute {
   pointer-events: auto;
   touch-action: none;
-  width: 100%;
+  flex: 1;
   height: 64px;
   border: none;
   border-radius: 32px;
@@ -122,4 +140,156 @@ body {
   font-size: 13px;
   opacity: 0.9;
   text-align: center;
+}
+
+/* Bola grande para escolher o ponto de contato */
+#linha-chute {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+#contato {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+#contato-bola {
+  pointer-events: auto;
+  touch-action: none;
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #ffffff 0%, #ececec 45%, #b9b9b9 100%);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+  cursor: crosshair;
+}
+
+/* Linhas finas em cruz para dar referência do centro */
+#contato-bola::before,
+#contato-bola::after {
+  content: "";
+  position: absolute;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+#contato-bola::before {
+  left: 50%;
+  top: 8%;
+  bottom: 8%;
+  width: 1px;
+}
+
+#contato-bola::after {
+  top: 50%;
+  left: 8%;
+  right: 8%;
+  height: 1px;
+}
+
+#contato-ponto {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  background: #e63946;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+#contato-rotulo {
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Painel de ajuste */
+#painel {
+  pointer-events: auto;
+  touch-action: pan-y;
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 8px;
+  right: 8px;
+  max-width: 460px;
+  margin: 0 auto;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+  border-radius: 14px;
+  background: rgba(10, 20, 14, 0.92);
+  text-shadow: none;
+  font-size: 13px;
+}
+
+#painel[hidden] {
+  display: none;
+}
+
+#painel-cabecalho {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+}
+
+#painel h3 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #f7d84a;
+}
+
+#painel .campo {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  margin-bottom: 10px;
+}
+
+#painel .campo input {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #f7d84a;
+}
+
+#painel button {
+  border: none;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-weight: 700;
+  background: #f7d84a;
+  color: #1b2a12;
+}
+
+#painel-acoes {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+#painel-acoes button {
+  flex: 1;
+}
+
+#painel-aviso {
+  margin-top: 8px;
+  color: #bfe8c3;
+}
+
+#painel-aviso textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  font-size: 11px;
+  user-select: text;
+  -webkit-user-select: text;
 }

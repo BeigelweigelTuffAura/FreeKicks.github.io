@@ -1,9 +1,11 @@
 import * as THREE from 'three';
-import { CONFIG, VERSAO } from './config.js?v=1';
-import { criarBola, chutar, passo, noChao } from './physics.js?v=1';
+import { CONFIG, VERSAO } from './config.js?v=2';
+import { criarBola, chutar, passo, noChao } from './physics.js?v=2';
+import { criarPainel } from './painel.js?v=2';
 
 const GRAUS = Math.PI / 180;
 const PASSO_FISICA = 1 / 240; // a física roda em passos pequenos e fixos, independente do celular
+const GIRO_VISUAL = 0.35;     // a bola gira mais devagar na tela do que na física, para o olho acompanhar
 
 // ---------- Renderizador e cena ----------
 
@@ -262,12 +264,71 @@ const elementos = {
   info: document.getElementById('info'),
   mensagem: document.getElementById('mensagem'),
   dica: document.getElementById('dica'),
+  contatoBola: document.getElementById('contato-bola'),
+  contatoPonto: document.getElementById('contato-ponto'),
+  contatoRotulo: document.getElementById('contato-rotulo'),
 };
 document.getElementById('versao').textContent = VERSAO;
 
 // fase: 'pronto' -> 'carregando' -> 'voo' -> 'fim' -> 'pronto'
 const estado = { fase: 'pronto', carga: 0, tempo: 0, espera: 0 };
 let bola;
+
+// ---------- Ponto de contato (onde o pé pega na bola) ----------
+
+let contato = { x: 0, y: 0 };
+try {
+  const salvo = JSON.parse(localStorage.getItem('fkl-contato'));
+  if (salvo && Number.isFinite(salvo.x) && Number.isFinite(salvo.y)) contato = salvo;
+} catch {
+  // Sem armazenamento: começa no centro
+}
+
+function descreverContato({ x, y }) {
+  const partes = [];
+  if (x > 0.15) partes.push('Curva ←');
+  else if (x < -0.15) partes.push('Curva →');
+  if (y > 0.15) partes.push('Cai');
+  else if (y < -0.15) partes.push('Sobe');
+  return partes.length ? partes.join(' · ') : 'Centro';
+}
+
+function mostrarContato() {
+  elementos.contatoPonto.style.left = `${50 + contato.x * 50}%`;
+  elementos.contatoPonto.style.top = `${50 - contato.y * 50}%`;
+  elementos.contatoRotulo.textContent = descreverContato(contato);
+}
+
+function escolherContato(e) {
+  const r = elementos.contatoBola.getBoundingClientRect();
+  let x = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+  let y = -(e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+  const d = Math.hypot(x, y);
+  if (d < 0.12) x = y = 0;          // perto do centro, gruda no centro
+  else if (d > 0.9) {               // não deixa sair da bola
+    x *= 0.9 / d;
+    y *= 0.9 / d;
+  }
+  contato = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 };
+  mostrarContato();
+}
+
+elementos.contatoBola.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  elementos.contatoBola.setPointerCapture(e.pointerId);
+  escolherContato(e);
+});
+elementos.contatoBola.addEventListener('pointermove', (e) => {
+  if (elementos.contatoBola.hasPointerCapture(e.pointerId)) escolherContato(e);
+});
+elementos.contatoBola.addEventListener('pointerup', () => {
+  try {
+    localStorage.setItem('fkl-contato', JSON.stringify(contato));
+  } catch {
+    // Sem armazenamento: vale só até fechar a página
+  }
+});
+mostrarContato();
 
 // A barra mostra só a parte já carregada; as cores ficam fixas ao longo da barra inteira
 function mostrarCarga(carga) {
@@ -290,7 +351,9 @@ function novaCobranca() {
   estado.fase = 'pronto';
   estado.carga = 0;
   mostrarCarga(0);
-  elementos.info.innerHTML = `Falta a <b>${CONFIG.falta.distancia} m</b>`;
+  const { distancia, angulo } = CONFIG.falta;
+  const lado = angulo > 3 ? ' pela direita' : angulo < -3 ? ' pela esquerda' : '';
+  elementos.info.innerHTML = `Falta a <b>${distancia} m</b>${lado}`;
   elementos.dica.style.visibility = 'visible';
 }
 
@@ -309,7 +372,7 @@ function soltarChute() {
   elementos.botao.classList.remove('pressionado');
   if (estado.fase !== 'carregando') return;
   const forca = estado.carga;
-  const velocidade = chutar(bola, { alvo: { x: 0, z: 0 }, forca }, CONFIG);
+  const { velocidade } = chutar(bola, { alvo: { x: 0, z: 0 }, forca, contato }, CONFIG);
   estado.fase = 'voo';
   estado.tempo = 0;
   elementos.mensagem.textContent = `Força ${Math.round(forca * 100)}% · ${Math.round(velocidade * 3.6)} km/h`;
@@ -333,14 +396,24 @@ botao.addEventListener('pointercancel', soltarChute);
 botao.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // No computador, a barra de espaço também chuta
+const digitando = (e) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && !e.repeat) {
+  if (e.code === 'Space' && !e.repeat && !digitando(e)) {
     e.preventDefault();
     comecarCarga();
   }
 });
 window.addEventListener('keyup', (e) => {
-  if (e.code === 'Space') soltarChute();
+  if (e.code === 'Space' && !digitando(e)) soltarChute();
+});
+
+// Painel de ajuste: mudar a posição da falta reposiciona a bola na hora
+criarPainel({
+  config: CONFIG,
+  versao: VERSAO,
+  aoMudar: (chave) => {
+    if (chave.startsWith('falta.') && estado.fase === 'pronto') novaCobranca();
+  },
 });
 
 // Tocar na tela durante o voo pula direto para a próxima cobrança
@@ -359,7 +432,7 @@ function atualizarBolaNaTela(dt) {
 
   // Gira a bola na tela: rolando no chão ou pelo efeito do chute
   if (noChao(bola, CONFIG)) eixoGiro.set(vel.z, 0, -vel.x).divideScalar(CONFIG.raioBola);
-  else eixoGiro.set(giro.x, giro.y, giro.z);
+  else eixoGiro.set(giro.x, giro.y, giro.z).multiplyScalar(GIRO_VISUAL);
   const angulo = eixoGiro.length() * dt;
   if (angulo > 1e-5) {
     giroVisual.setFromAxisAngle(eixoGiro.normalize(), angulo);

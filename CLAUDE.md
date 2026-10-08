@@ -16,6 +16,8 @@ A especificação completa (escopo, mecânica, ordem de construção) está em `
   - `js/config.js`: todos os números ajustáveis (`CONFIG`) e o rótulo `VERSAO` mostrado na tela.
   - `js/physics.js`: física da bola, sem dependência do Three.js (dá para rodar no Node).
   - `js/main.js`: cena, câmera, controles, HUD e loop.
+  - `js/painel.js`: painel de ajuste (sliders que mudam o `CONFIG` na hora). Todo número novo que afete a sensação do jogo ganha um slider aqui.
+  - `testes/fisica.mjs`: testes da física. Rodar com `node testes/fisica.mjs` antes de cada commit que mexa na física.
 - Eixos: x = direita de quem cobra, y = para cima, z = do gol para quem cobra. Gol em z = 0, chute vai para z negativo.
 - **Cache:** a hospedagem guarda arquivos em cache por alguns minutos. A cada etapa publicada, aumente o número `?v=N` em todos os imports e links (`index.html` e `js/*.js`) e atualize `VERSAO`:
   `sed -i 's/?v=[0-9]*/?v=NOVO/g' index.html js/*.js`

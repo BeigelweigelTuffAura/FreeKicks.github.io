@@ -1,13 +1,13 @@
 // Todos os números ajustáveis do jogo ficam aqui.
 // Unidades: metros, segundos, graus.
 
-export const VERSAO = 'v0.1 · etapa 1';
+export const VERSAO = 'v0.1 · etapa 2';
 
 export const CONFIG = {
   // Mundo
   gravidade: 9.81,        // m/s²
   arrasto: 0.012,         // resistência do ar: quanto maior, mais a bola freia no voo
-  magnus: 0.005,          // força da curva causada pelo giro (usada a partir da etapa 2)
+  magnus: 0.005,          // quanto o giro desvia a bola (efeito Magnus)
   decaimentoGiro: 0.15,   // quanto o giro perde por segundo (0.15 = 15%)
   raioBola: 0.11,         // m
   quiqueChao: 0.5,        // quanto a bola quica no gramado (0 = nada, 1 = tudo)
@@ -16,8 +16,20 @@ export const CONFIG = {
   // Chute
   velocidadeMin: 14,      // m/s com a barra vazia
   velocidadeMax: 34,      // m/s com a barra cheia
-  elevacaoBase: 15,       // graus: ângulo de saída com contato no centro da bola
+  elevacaoBase: 16,       // graus: ângulo de saída com contato no centro da bola
   tempoCarga: 1.1,        // segundos para a barra encher
+
+  // Ponto de contato na bola
+  elevacaoContatoEmbaixo: 4, // graus a mais quando o pé pega embaixo da bola
+  elevacaoContatoEmCima: 0,  // graus a menos quando o pé pega em cima
+  giroLateralMax: 55,     // giro com o pé na lateral da bola: define a força da curva
+  giroVerticalMax: 18,    // giro com o pé em cima (cai: folha seca) ou embaixo (flutua)
+  perdaVelocidadeContato: 0.15, // quanto de velocidade se perde batendo na borda da bola
+
+  // Bola sem rotação (pé bem no centro e chute forte)
+  semRotacaoRaio: 0.25,         // quão perto do centro precisa ser o contato
+  semRotacaoForcaMinima: 0.7,   // força mínima da barra para a bola "dançar"
+  semRotacaoAmplitude: 5,       // quanto a bola dança
 
   // Gol (medidas oficiais)
   golLargura: 7.32,
