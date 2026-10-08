@@ -125,8 +125,8 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
     },
     listaAberta: () => !lista.hidden,
     mostrarFalta({ distancia, angulo }) {
-      const lado = angulo > 4 ? ' · pela direita' : angulo < -4 ? ' · pela esquerda' : ' · frontal';
-      $('info').innerHTML = `Falta a <b>${Math.round(distancia)} m</b>${lado}`;
+      const lado = angulo > 4 ? 'pela direita' : angulo < -4 ? 'pela esquerda' : 'frontal';
+      $('info').innerHTML = `Falta · <b>${Math.round(distancia)} m</b><br><small>${lado}</small>`;
     },
     mostrarPlacar(texto) {
       $('placar').textContent = texto;

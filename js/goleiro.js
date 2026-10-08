@@ -72,7 +72,10 @@ const PES = { d: -0.86, r: 0.08, meia: 0.24, abertura: 0.42, dobrada: 0.06 };
 const ROLAGEM_MAX = 1.4;        // rad: corpo quase deitado no mergulho completo
 const GRAVIDADE = 9.81;
 const BRACO_MAX = 0.72;         // m do ombro ao meio da palma: o braço do boneco desenhado, um pouco esticado
-const FRENTE_BOLA = 0.08;       // m: a bola presa fica um pouco à frente das mãos
+const FRENTE_BOLA = 0.06;       // m: a bola presa fica um pouco à frente das mãos
+// Onde ele guarda a bola encaixada: na frente da barriga, abraçada (a partir do centro do corpo)
+const ABRACO_ALTURA = -0.04;    // m ao longo do eixo do corpo
+const ABRACO_FRENTE = 0.38;     // m para a frente
 const ABRACO = 0.25;            // s para trazer a bola encaixada até o peito
 const ULTIMA_OLHADA = 0.25;     // s: se depois da próxima olhada sobrar menos que isso até a bola chegar, ele não espera mais
 const SEM_SEGURAR = 0.15;
@@ -620,17 +623,21 @@ function encaixar(g, p, dur) {
 function posicaoDaBolaPresa(g, { F, U }) {
   const e = g.encaixe;
   const k = suave((g.tempo - e.t0) / Math.max(1e-3, e.dur));
-  const peito = { x: U.x * 0.12 + F.x * 0.3, y: U.y * 0.12, z: U.z * 0.12 + F.z * 0.3 };
+  const peito = {
+    x: U.x * ABRACO_ALTURA + F.x * ABRACO_FRENTE,
+    y: U.y * ABRACO_ALTURA,
+    z: U.z * ABRACO_ALTURA + F.z * ABRACO_FRENTE,
+  };
   const rel = misturar(e.rel0, peito, k);
   return { x: g.cx + rel.x, y: g.cy + rel.y, z: g.z + rel.z };
 }
 
-// Mãos segurando a bola no ponto P: uma de cada lado, um pouco atrás dela
-function maosNaBola(P, { F, O }) {
+// Mãos segurando a bola no ponto P: uma de cada lado, um pouco atrás e embaixo dela
+function maosNaBola(P, { F, U, O }) {
   return [-1, 1].map((s) => ({
-    x: P.x - F.x * FRENTE_BOLA + O.x * 0.16 * s,
-    y: P.y + O.y * 0.16 * s,
-    z: P.z - F.z * FRENTE_BOLA + O.z * 0.16 * s,
+    x: P.x - F.x * FRENTE_BOLA + O.x * 0.15 * s - U.x * 0.05,
+    y: P.y + O.y * 0.15 * s - U.y * 0.05,
+    z: P.z - F.z * FRENTE_BOLA + O.z * 0.15 * s - U.z * 0.05,
   }));
 }
 

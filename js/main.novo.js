@@ -114,7 +114,7 @@ const rastro = (() => {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 32, 32);
   const pontos = new THREE.Points(geometria, new THREE.PointsMaterial({
-    size: 0.16, map: texturaDeCanvas(canvas), vertexColors: true, transparent: true, depthWrite: false,
+    size: 0.26, map: texturaDeCanvas(canvas), vertexColors: true, transparent: true, depthWrite: false,
     blending: THREE.AdditiveBlending,
   }));
   pontos.frustumCulled = false;
@@ -892,6 +892,9 @@ const giroVisual = new THREE.Quaternion();
 function atualizarBolaNaTela(dt) {
   const { pos, giro } = bola;
   bolaMesh.position.set(pos.x, pos.y, pos.z);
+  // Longe da câmera (na aérea) a bola fica um pouco maior na tela, para o olho não perder
+  const longe = camera.position.distanceTo(bolaMesh.position) / CONFIG.camera.bolaVisivelAte;
+  bolaMesh.scale.setScalar(Math.min(CONFIG.camera.bolaAumentoMax, Math.max(1, longe)));
 
   // Gira a bola na tela com o giro da física (mais devagar, para o olho acompanhar)
   eixoGiro.set(giro.x, giro.y, giro.z).multiplyScalar(GIRO_VISUAL);
@@ -972,6 +975,34 @@ function quadro() {
   rastro.visivel = CONFIG.rastro;
   renderer.render(scene, camera);
   requestAnimationFrame(quadro);
+}
+
+// No modo teste, atalhos para os testes automáticos controlarem a cobrança com precisão
+if (MODO_TESTE) {
+  window.jogoTeste = {
+    contato(x, y) {
+      contato = { x, y };
+      mostrarContato();
+    },
+    mirar(x) {
+      mira.x = limitarMira(x);
+    },
+    falta(distancia, angulo) {
+      estado.fixa = true;
+      falta = { distancia, angulo };
+      novaCobranca();
+    },
+    cobrador(numero) {
+      escolherCobrador(ELENCO.find((j) => j.numero === numero));
+    },
+    chutar(forca) {
+      if (estado.fase !== 'pronto') return;
+      estado.fase = 'carregando';
+      estado.carga = forca;
+      soltarChute();
+    },
+    estado: () => ({ fase: estado.fase, falta, mira: mira.x, resultado: jogada.resultado, tecnica: tiro && tiro.tecnica }),
+  };
 }
 
 novaCobranca();

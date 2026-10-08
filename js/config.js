@@ -96,6 +96,8 @@ export const CONFIG = {
     aereaAlvo: 0.5,       // para onde olha: 0 = bola, 1 = gol
     aereaAproxima: 0.4,   // quanto a câmera anda junto com a bola em direção ao gol
     aereaTransicao: 0.3,  // s para trocar de câmera (0 = corte seco)
+    bolaVisivelAte: 12,   // m: mais longe que isso, a bola aparece um pouco maior na tela
+    bolaAumentoMax: 1.7,  // quanto a bola pode crescer na tela, no máximo
   },
 
   // Mira: arrastar o dedo na tela mexe o alvo no gol
