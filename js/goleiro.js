@@ -60,15 +60,20 @@ const OMBRO = 0.52;             // m do quadril até a altura dos ombros
 // Tronco, quadril e pernas são cápsulas atravessadas (de um ombro ao outro, de uma perna à outra):
 // de frente o corpo é largo, de lado é fino.
 const PARTES = [
-  { parte: 'perna', d: -0.66, meia: 0.14, r: 0.1 },   // canelas (pernas abertas)
   { parte: 'perna', d: -0.3, meia: 0.1, r: 0.13 },    // coxas
   { parte: 'tronco', d: 0.12, meia: 0.1, r: 0.16 },   // barriga
   { parte: 'tronco', d: 0.4, meia: 0.17, r: 0.15 },   // peito e ombros
   { parte: 'cabeca', d: 0.7, meia: 0, r: 0.12 },
 ];
-// Pés e tornozelos (a ponta das pernas do boneco). No mergulho a perna de baixo dobra e a de cima
-// fica esticada e aberta, então os pés vão para o lado de cima do corpo.
-const PES = { d: -0.86, r: 0.08, meia: 0.24, abertura: 0.42, dobrada: 0.06 };
+// Canelas e pés: uma cápsula do joelho ao pé em cada perna, como no boneco desenhado. De pé, as
+// pernas ficam abertas; deitado no mergulho, a perna de cima fica esticada e aberta e a de baixo
+// dobra, com o pé perto do corpo. Pontos: [d ao longo do eixo, para o lado de fora, para a frente].
+const PERNAS = {
+  dePe: { joelho: [-0.45, 0.15, 0], pe: [-0.86, 0.26, 0] },
+  deCima: { joelho: [-0.4, 0.25, 0], pe: [-0.86, 0.44, 0] },
+  deBaixo: { joelho: [-0.42, 0.1, 0.18], pe: [-0.84, 0.1, 0.02] },
+  r: 0.09,
+};
 const ROLAGEM_MAX = 1.4;        // rad: corpo quase deitado no mergulho completo
 const GRAVIDADE = 9.81;
 const BRACO_MAX = 0.72;         // m do ombro ao meio da palma: o braço do boneco desenhado, um pouco esticado
@@ -744,15 +749,20 @@ export function partesDoGoleiro(g) {
     }
     return capsula(parte, d, -meia, meia, r);
   });
-  // Pés: de pé, um de cada lado; deitado, a perna de cima abre e a de baixo dobra perto do corpo
+  // Canelas e pés (de pé, abertos; deitado, a perna de cima esticada e a de baixo dobrada)
   const deitado = limitar(Math.abs(g.rolagem), 0, 1);
-  const s = Math.sign(g.rolagem) || 1;
-  lista.push(capsula(
-    'perna', PES.d,
-    -s * (PES.meia + (PES.abertura - PES.meia) * deitado),
-    s * (PES.meia + (PES.dobrada - PES.meia) * deitado),
-    PES.r,
-  ));
+  const s = Math.sign(g.rolagem) || 1; // o lado para onde ele tomba fica embaixo
+  const ponto = (a, b, lado) => {
+    const [d, fora, frente] = a.map((v, k) => v + (b[k] - v) * deitado);
+    const p = noCorpo(g, eixo, d, lado * fora, frente);
+    return { x: p.x, y: Math.max(PERNAS.r, p.y), z: p.z };
+  };
+  for (const lado of [-1, 1]) {
+    const deitada = lado === s ? PERNAS.deBaixo : PERNAS.deCima;
+    const joelho = ponto(PERNAS.dePe.joelho, deitada.joelho, lado);
+    const pe = ponto(PERNAS.dePe.pe, deitada.pe, lado);
+    lista.push({ parte: 'perna', ...joelho, ate: pe, r: PERNAS.r });
+  }
   const maos = g.maos || [];
   maos.forEach((m, i) => {
     const ombro = ombroDoGoleiro(g, eixo, i === 0 ? -1 : 1); // mão direita do goleiro fica no lado −L
