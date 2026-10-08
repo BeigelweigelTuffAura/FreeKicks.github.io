@@ -503,7 +503,9 @@ function avancarMergulho(g, bola, dt, c, t) {
   const rolagemFinal = m.caindo && deLado ? Math.sign(m.rolagem) * ROLAGEM_MAX : m.rolagem;
   const alvoRolagem = rolagemFinal * suave(Math.min(1, g.progresso * 1.3));
   g.rolagem += (alvoRolagem - g.rolagem) * Math.min(1, dt * 14);
-  g.bracos = Math.min(1, g.bracos + dt * 8);
+  // Braços esticados no lance; defendendo de pé, depois do lance eles voltam para a frente do corpo
+  if (m.queda > 0.5 && !deLado && !g.segurando) g.bracos = Math.max(0.3, g.bracos - dt * 3);
+  else g.bracos = Math.min(1, g.bracos + dt * 8);
 }
 
 // ---------- Pose e partes do corpo ----------
