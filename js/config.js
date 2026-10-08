@@ -96,6 +96,10 @@ export const CONFIG = {
     aereaAlvo: 0.5,       // para onde olha: 0 = bola, 1 = gol
     aereaAproxima: 0.4,   // quanto a câmera anda junto com a bola em direção ao gol
     aereaTransicao: 0.3,  // s para trocar de câmera (0 = corte seco)
+    cameraLenta: true,    // câmera lenta quando a bola está chegando no gol
+    cameraLentaFator: 0.35, // velocidade do tempo na câmera lenta (1 = normal)
+    cameraLentaDuracao: 0.35, // s de jogo em câmera lenta
+    cameraLentaDistancia: 3.5, // m da linha do gol em que a câmera lenta começa
     bolaVisivelAte: 12,   // m: mais longe que isso, a bola aparece um pouco maior na tela
     bolaAumentoMax: 1.7,  // quanto a bola pode crescer na tela, no máximo
   },

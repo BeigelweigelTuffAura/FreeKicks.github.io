@@ -424,7 +424,7 @@ const jogada = {};
 function zerarJogada() {
   Object.assign(jogada, {
     batida: null, redeFora: false, barreira: false, defesa: null, barreiraPulou: false, porBaixo: false,
-    resultado: null, somRede: false, quiques: 0,
+    resultado: null, somRede: false, quiques: 0, lentaUsada: false, lentaAte: 0,
   });
 }
 
@@ -914,6 +914,33 @@ function atualizarBolaNaTela(dt) {
 
 const relogio = new THREE.Clock();
 let tempoTotal = 0;
+let escalaTempo = 1; // 1 = normal; menos = câmera lenta
+
+// Câmera lenta: quando a bola está chegando no gol, o tempo desacelera por um instante
+function querCameraLenta() {
+  if (!CONFIG.camera.cameraLenta || estado.fase !== 'voo' || jogada.lentaUsada) return false;
+  const { pos, vel } = bola;
+  const chegando = vel.z < -8 && pos.z > 0 && pos.z < CONFIG.camera.cameraLentaDistancia;
+  const naDirecao = Math.abs(pos.x) < CONFIG.golLargura / 2 + 0.6 && pos.y < CONFIG.golAltura + 0.6;
+  return chegando && naDirecao;
+}
+
+// Qualidade automática: se o celular não aguenta 60 quadros por segundo, desenha com menos pixels
+const qualidade = { amostras: 0, soma: 0, pixel: Math.min(window.devicePixelRatio, 2) };
+function ajustarQualidade(dtReal) {
+  if (MODO_TESTE) return;
+  qualidade.soma += dtReal;
+  qualidade.amostras++;
+  if (qualidade.amostras < 90) return;
+  const media = qualidade.soma / qualidade.amostras;
+  qualidade.amostras = 0;
+  qualidade.soma = 0;
+  if (media > 1 / 45 && qualidade.pixel > 1) {
+    qualidade.pixel = Math.max(1, qualidade.pixel - 0.25);
+    renderer.setPixelRatio(qualidade.pixel);
+    ajustarTela();
+  }
+}
 
 // Física, barreira e goleiro em passos pequenos (a ordem importa)
 function simular(dt) {
@@ -933,8 +960,18 @@ function simular(dt) {
 }
 
 function quadro() {
-  const dt = MODO_TESTE ? 1 / 60 : Math.min(relogio.getDelta(), 0.05);
-  window.tempoDeJogo += dt;
+  const dtReal = MODO_TESTE ? 1 / 60 : Math.min(relogio.getDelta(), 0.05);
+  window.tempoDeJogo += dtReal;
+  ajustarQualidade(dtReal);
+
+  // Câmera lenta: entra rápido, segura um instante e volta suave
+  if (querCameraLenta()) {
+    jogada.lentaUsada = true;
+    jogada.lentaAte = tempoTotal + CONFIG.camera.cameraLentaDuracao;
+  }
+  const alvoEscala = jogada.lentaAte && tempoTotal < jogada.lentaAte ? CONFIG.camera.cameraLentaFator : 1;
+  escalaTempo += (alvoEscala - escalaTempo) * Math.min(1, dtReal * (alvoEscala < escalaTempo ? 14 : 4));
+  const dt = dtReal * escalaTempo;
   tempoTotal += dt;
 
   if (estado.fase === 'carregando') {
