@@ -17,6 +17,7 @@
       border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 8px; padding: 7px 10px;
     }
     #botoes button.ativo { background: #f7d84a; color: #111; }
+    #botoes .lance { background: rgba(20, 70, 140, 0.7); }
     #info { position: fixed; left: 8px; bottom: 8px; color: #fff; font: 12px ui-monospace, monospace; background: rgba(0, 0, 0, 0.55); padding: 4px 8px; border-radius: 6px; }
     .sem-ui #botoes, .sem-ui #info { display: none; }
   </style>
@@ -25,10 +26,17 @@
   <div id="tela"></div>
   <div id="botoes">
     <button data-camera="a" type="button">Atrás da bola</button>
+    <button data-camera="f" type="button">Aérea de lado</button>
     <button data-camera="b" type="button">Aérea diagonal</button>
     <button data-camera="c" type="button">Aérea do jogo</button>
+    <button data-camera="g" type="button">Perto do gol</button>
     <button data-camera="d" type="button">Volta no estádio</button>
     <button data-camera="e" type="button">Visão geral</button>
+    <button class="lance" data-lance="angulo" type="button">Bola no ângulo</button>
+    <button class="lance" data-lance="meio" type="button">Bola no meio</button>
+    <button class="lance" data-lance="lateral" type="button">Rede por fora</button>
+    <button class="lance" data-lance="teto" type="button">Bola no teto</button>
+    <button class="lance" data-lance="trave" type="button">Travessão</button>
     <button id="gol" type="button">GOL!</button>
     <button id="trave" type="button">Uuuh (trave)</button>
     <button id="bonecos" type="button">Bonecos</button>
@@ -37,15 +45,20 @@
 
   <script type="module">
     // Página de teste do cenário (js/estadio.js) com câmeras fixas, para olhar e comparar capturas.
-    // Endereço: testes/cenario.html?cam=a (a, b, c, d ou e) · &ui=0 esconde os botões · &teste: cada quadro vale 1/60 s
+    // Endereço: testes/cenario.html?cam=a (a, b, c, d, e, f ou g) · &ui=0 esconde os botões · &teste: cada quadro vale 1/60 s
     // · &gol=1 já começa comemorando (com a rede estufando) · &bonecos=0 tira os bonecos de referência
+    // · &lance=angulo (angulo, meio, lateral, teto ou trave) já solta uma bola · &pausa: o tempo só anda com avancar()
+    // Os lances usam a física de verdade (js/physics.js) e chamam o cenário como o jogo chama:
+    // rede.bola a cada quadro, rede.estufar no evento "fundo", trave() no evento de trave e torcida.festa(1) no gol.
     import * as THREE from 'three';
     import { CONFIG } from '../js/config.js';
-    import { criarCenario } from '../js/estadio.js';
+    import { criarBola, passo } from '../js/physics.js';
+    import { criarCenario, PADRAO_CENARIO } from '../js/estadio.js';
 
     const GRAUS = Math.PI / 180;
     const parametros = new URLSearchParams(location.search);
     if (parametros.get('ui') === '0') document.body.classList.add('sem-ui');
+    CONFIG.cenario = { ...PADRAO_CENARIO, ...(CONFIG.cenario || {}) };
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -85,6 +98,8 @@
       b: { pos: [13, 13, 24], olhar: [0, 1, 8] },                                 // aérea na diagonal
       c: { pos: [2, 13, 29], olhar: [0, 0.55, 11] },                              // a aérea do jogo logo depois do chute
       e: { pos: [-18, 34, 92], olhar: [0, 6, 0] },                                // visão geral (céu, cobertura e torres)
+      f: { pos: [10, 11, 20], olhar: [0, 1, 3] },                                 // aérea de lado (a do jogo, chegando no gol)
+      g: { pos: [5.5, 2.4, 6.5], olhar: [0.3, 1.1, -1.2] },                       // perto do gol (para olhar a rede de perto)
     };
     let cameraAtual = parametros.get('cam') || 'a';
     let anguloVolta = 0;
@@ -109,7 +124,7 @@
         camera.position.set(Math.sin(anguloVolta) * r, 9, 14 + Math.cos(anguloVolta) * r);
         camera.lookAt(0, 2, 8);
       } else {
-        const c = CAMERAS[cameraAtual];
+        const c = CAMERAS[cameraAtual] || CAMERAS.a;
         camera.position.set(...c.pos);
         camera.lookAt(...c.olhar);
       }
@@ -122,14 +137,105 @@
       });
     }
 
-    // Gol: a bola "entra" no ângulo e empurra a rede por um instante, e a torcida comemora
+    // ----- Lances: uma bola de verdade (física do jogo) chegando no gol -----
+    // de: onde a bola sai; ate: onde ela deve passar (z do alvo); vel: velocidade de saída (m/s)
+    const LANCES = {
+      angulo: { de: [1.0, 1.3, 9], ate: [3.25, 2.12, -0.3], vel: 26 },  // no ângulo, de cima, estufa o canto
+      meio: { de: [-0.4, 0.5, 9], ate: [0.2, 1.05, -0.3], vel: 28 },    // no meio, forte
+      lateral: { de: [8.5, 0.9, 4], ate: [3.6, 1.05, -1.1], vel: 17 },  // de fora, na rede lateral (gol de "rede pelo lado de fora")
+      teto: { de: [0.6, 1.0, 9], ate: [0.3, 2.62, -0.9], vel: 9 },      // por cobertura: cai em cima da rede
+      trave: { de: [0.5, 1.2, 9], ate: [1.6, 2.47, 0], vel: 24 },       // no travessão
+    };
+    const PASSO_FISICA = 1 / 240;
+    let bolaFisica = null;
+    let jogada = null;
+
+    // Simula o lance sem desenhar e acerta a velocidade de saída até a bola passar no alvo (com o ar e a gravidade)
+    function mirar(l) {
+      const de = { x: l.de[0], y: l.de[1], z: l.de[2] };
+      const alvo = { x: l.ate[0], y: l.ate[1], z: l.ate[2] };
+      const dist = Math.hypot(alvo.x - de.x, alvo.y - de.y, alvo.z - de.z);
+      let T = dist / l.vel;
+      let vel = { x: (alvo.x - de.x) / T, y: (alvo.y - de.y) / T + 0.5 * CONFIG.gravidade * T, z: (alvo.z - de.z) / T };
+      for (let tentativa = 0; tentativa < 6; tentativa++) {
+        const b = criarBola(de);
+        b.vel = { ...vel };
+        let t = 0;
+        while (t < 4 && b.pos.z > alvo.z) {
+          passoLivre(b, PASSO_FISICA);
+          t += PASSO_FISICA;
+        }
+        if (t === 0) break;
+        const erroX = alvo.x - b.pos.x;
+        const erroY = alvo.y - b.pos.y;
+        vel.x += erroX / t;
+        vel.y += erroY / t;
+      }
+      return vel;
+    }
+    // Só o voo (sem gol, traves ou rede): para mirar
+    function passoLivre(b, h) {
+      const v = Math.hypot(b.vel.x, b.vel.y, b.vel.z);
+      b.vel.x -= CONFIG.arrasto * v * b.vel.x * h;
+      b.vel.y -= (CONFIG.arrasto * v * b.vel.y + CONFIG.gravidade) * h;
+      b.vel.z -= CONFIG.arrasto * v * b.vel.z * h;
+      b.pos.x += b.vel.x * h;
+      b.pos.y += b.vel.y * h;
+      b.pos.z += b.vel.z * h;
+    }
+
+    // Solta uma bola (devolve em quantos segundos ela chega na linha do gol, mais ou menos)
+    window.lance = (nome) => {
+      const l = LANCES[nome];
+      if (!l) return null;
+      cenario.rede.reiniciar();
+      cenario.torcida.festa(0);
+      bolaFisica = criarBola({ x: l.de[0], y: l.de[1], z: l.de[2] });
+      bolaFisica.vel = mirar(l);
+      jogada = { nome, tempo: 0, gol: false, trave: false };
+      const chegada = l.de[2] / Math.max(1, -bolaFisica.vel.z);
+      bola.position.set(l.de[0], l.de[1], l.de[2]);
+      return { chegada };
+    };
+    for (const b of document.querySelectorAll('[data-lance]')) b.addEventListener('click', () => window.lance(b.dataset.lance));
+
+    function avancarLance(dt) {
+      if (!bolaFisica) return;
+      jogada.tempo += dt;
+      const passos = Math.ceil(dt / PASSO_FISICA - 1e-9);
+      for (let i = 0; i < passos; i++) passo(bolaFisica, dt / passos, CONFIG);
+      // Igual ao jogo: eventos da física viram reações do cenário
+      for (const ev of bolaFisica.eventos) {
+        if (ev.tipo === 'fundo') cenario.rede.estufar(ev.x, ev.y, ev.afundou);
+        else if ((ev.tipo === 'trave' || ev.tipo === 'travessao') && !jogada.trave) {
+          jogada.trave = true;
+          cenario.trave(Math.min(1, (ev.impacto || 20) / 25));
+          cenario.torcida.festa(0.35);
+        }
+      }
+      bolaFisica.eventos.length = 0;
+      if (bolaFisica.gol && !jogada.gol) {
+        jogada.gol = true;
+        cenario.torcida.festa(1);
+      }
+      bola.position.set(bolaFisica.pos.x, bolaFisica.pos.y, bolaFisica.pos.z);
+      sombra.position.set(bolaFisica.pos.x, 0.01, bolaFisica.pos.z);
+      sombra.material.opacity = 0.35 * Math.max(0, 1 - bolaFisica.pos.y / 4);
+      // A rede precisa saber onde a bola está a cada quadro
+      cenario.rede.bola(bolaFisica.pos, CONFIG.raioBola);
+    }
+
+    // Gol "de mentira" (sem bola): só empurra a rede por um instante e a torcida comemora
     let empurrando = 0;
     function gol() {
       empurrando = 0.25;
       cenario.torcida.festa(1);
     }
     document.getElementById('gol').addEventListener('click', gol);
-    document.getElementById('trave').addEventListener('click', () => cenario.torcida.festa(0.3));
+    document.getElementById('trave').addEventListener('click', () => {
+      cenario.trave(1);
+      cenario.torcida.festa(0.3);
+    });
     document.getElementById('bonecos').addEventListener('click', () => { bonecos.visible = !bonecos.visible; });
     if (parametros.get('gol') === '1') gol();
 
@@ -139,6 +245,7 @@
         empurrando -= dt;
         cenario.rede.estufar(2.3, 1.6, 0.55 * Math.min(1, (0.25 - empurrando) / 0.08));
       }
+      avancarLance(dt);
       cenario.atualizar(dt);
       if (cameraAtual === 'd') {
         anguloVolta += dt * 0.15;
@@ -150,6 +257,19 @@
       renderer.render(scene, camera);
     };
     window.cenario = cenario;
+    window.estadoBola = () => bolaFisica && { ...bolaFisica.pos, gol: bolaFisica.gol, entrou: bolaFisica.entrouNoGol };
+    // Mede quanto a rede custa por quadro neste aparelho (ms), com a bola apoiada nela e tudo balançando
+    window.medirRede = (quadros = 300) => {
+      window.lance('meio');
+      for (let q = 0; q < 40; q++) avancar(1 / 60);
+      const t0 = performance.now();
+      for (let q = 0; q < quadros; q++) {
+        if (q % 60 === 0) cenario.trave(1);
+        cenario.rede.bola(bolaFisica.pos, CONFIG.raioBola);
+        cenario.rede.atualizar(1 / 60);
+      }
+      return (performance.now() - t0) / quadros;
+    };
     // Câmera livre (para olhar detalhes): posição, ponto para onde olha e, se quiser, o campo de visão
     window.posicionar = (pos, alvo, fov) => {
       cameraAtual = 'livre';
@@ -163,11 +283,15 @@
     };
     window.definirCamera = (nome) => {
       cameraAtual = nome;
+      ajustarTela();
       posicionarCamera();
       renderer.render(scene, camera);
     };
+    // Com &pausa, o tempo só anda pelo avancar() (capturas quadro a quadro)
+    window.pausado = parametros.has('pausa');
 
     posicionarCamera();
+    if (parametros.get('lance')) window.lance(parametros.get('lance'));
     const MODO_TESTE = parametros.has('teste');
     const relogio = new THREE.Clock();
     const info = document.getElementById('info');
@@ -175,6 +299,8 @@
     let acumulado = 0;
     window.tempoDeJogo = 0;
     function quadro() {
+      requestAnimationFrame(quadro);
+      if (window.pausado) return;
       const dt = MODO_TESTE ? 1 / 60 : Math.min(relogio.getDelta(), 0.05);
       window.tempoDeJogo += dt;
       avancar(dt);
@@ -187,7 +313,6 @@
         const r = renderer.info.render;
         info.textContent = `${fps} qps · ${r.calls} chamadas · ${Math.round(r.triangles / 1000)} mil triângulos · montagem ${Math.round(tempoCriacao)} ms`;
       }
-      requestAnimationFrame(quadro);
     }
     requestAnimationFrame(quadro);
     window.cenarioPronto = true;

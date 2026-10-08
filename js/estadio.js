@@ -1615,15 +1615,39 @@ export function criarMalhaRede(CONFIG) {
       r.x = r.v = f.recuo = 0;
       if (!estado.ferroMexido) return false;
     }
-    // As bordas da rede andam junto com os ferros
-    for (const i of presos) {
-      const b = estado.peso * caimento[i];
-      const p = paineis[painelDe[i]];
-      deslocarFerro(base[3 * i] + b * p.normal[0], base[3 * i + 1] + b * p.normal[1], base[3 * i + 2] + b * p.normal[2],
-        f, meia, A, P, u, 3 * i);
+    // As bordas da rede andam junto com os ferros. A conta do deslocarFerro é uma soma de duas partes
+    // (tremor × amp e puxão × recuo): cada parte fica guardada por ponto e aqui só se multiplica.
+    if (campos.xh !== f.xh || campos.trav !== f.trav || campos.peso !== estado.peso) calcularCampos();
+    const amp = f.amp;
+    const recuo = f.recuo;
+    for (let n = 0; n < presos.length; n++) {
+      const a = 3 * presos[n];
+      const c = 3 * n;
+      u[a] = amp * campos.tremor[c] + recuo * campos.puxao[c];
+      u[a + 1] = amp * campos.tremor[c + 1] + recuo * campos.puxao[c + 1];
+      u[a + 2] = amp * campos.tremor[c + 2] + recuo * campos.puxao[c + 2];
     }
     estado.ferroMexido = mexendo;
     return mexendo;
+  }
+  // Deslocamento de cada ponto preso com tremor = 1 m (e puxão 0), e com puxão = 1 m (e tremor 0)
+  const campos = { xh: NaN, trav: NaN, peso: NaN, tremor: new Float64Array(3 * presos.length), puxao: new Float64Array(3 * presos.length) };
+  function calcularCampos() {
+    const f = estado.ferro;
+    campos.xh = f.xh;
+    campos.trav = f.trav;
+    campos.peso = estado.peso;
+    const so = { amp: 1, xh: f.xh, trav: f.trav, recuo: 0 };
+    const sp = { amp: 0, xh: f.xh, trav: f.trav, recuo: 1 };
+    presos.forEach((i, n) => {
+      const b = estado.peso * caimento[i];
+      const p = paineis[painelDe[i]];
+      const x = base[3 * i] + b * p.normal[0];
+      const y = base[3 * i + 1] + b * p.normal[1];
+      const z = base[3 * i + 2] + b * p.normal[2];
+      deslocarFerro(x, y, z, so, meia, A, P, campos.tremor, 3 * n);
+      deslocarFerro(x, y, z, sp, meia, A, P, campos.puxao, 3 * n);
+    });
   }
 
   // A bola contra um pano. (bx, by, bz) = centro, (wx, wy, wz) = velocidade.
@@ -1714,13 +1738,14 @@ export function criarMalhaRede(CONFIG) {
         posicoes[a + 1] = base[a + 1] + b * n1 + u[a + 1];
         posicoes[a + 2] = base[a + 2] + b * n2 + u[a + 2];
       }
-      for (let j = 0; j <= p.nt; j++) {
-        const jd = p.base + Math.max(0, j - 1) * p.W;
-        const ju = p.base + Math.min(p.nt, j + 1) * p.W;
-        const linha = p.base + j * p.W;
-        for (let k = 0; k <= p.ns; k++) {
-          const e = 3 * (linha + Math.max(0, k - 1));
-          const d = 3 * (linha + Math.min(p.ns, k + 1));
+      const { ns, nt, W } = p;
+      for (let j = 0; j <= nt; j++) {
+        const jd = p.base + (j > 0 ? j - 1 : 0) * W;
+        const ju = p.base + (j < nt ? j + 1 : nt) * W;
+        const linha = p.base + j * W;
+        for (let k = 0; k <= ns; k++) {
+          const e = 3 * (linha + (k > 0 ? k - 1 : 0));
+          const d = 3 * (linha + (k < ns ? k + 1 : ns));
           const b = 3 * (jd + k);
           const c = 3 * (ju + k);
           const sx = posicoes[d] - posicoes[e];
@@ -1732,11 +1757,11 @@ export function criarMalhaRede(CONFIG) {
           const nx = sy * tz - sz * ty;
           const ny = sz * tx - sx * tz;
           const nz = sx * ty - sy * tx;
-          const l = Math.hypot(nx, ny, nz) || 1;
+          const l = 1 / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1);
           const a = 3 * (linha + k);
-          normais[a] = nx / l;
-          normais[a + 1] = ny / l;
-          normais[a + 2] = nz / l;
+          normais[a] = nx * l;
+          normais[a + 1] = ny * l;
+          normais[a + 2] = nz * l;
         }
       }
     }
