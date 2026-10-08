@@ -745,7 +745,7 @@ export function colidirBolaGoleiro(bola, g, cfg = {}) {
 
     // Encaixa? Bola devagar, de frente, nas mãos ou no peito e perto do centro do corpo
     const dCentro = Math.hypot(p.x - g.cx, p.y - g.cy); // no plano do corpo: o quanto ele precisou esticar
-    const qualidade = limitar(1.4 - dCentro / c.alcance, 0.3, 1);
+    const qualidade = limitar(1.6 - dCentro / c.alcance, 0.35, 1);
     const deFrente = impacto > 0.5 * rapidez;
     const podeSegurar = (melhor.parte === 'mao' || melhor.parte === 'tronco') && deFrente;
     if (podeSegurar && rapidez < c.velocidadeSegura * qualidade) {
