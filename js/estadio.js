@@ -434,7 +434,8 @@ function criarGramado(scene, anisotropia) {
           return mix(mix(acaso(i), acaso(i + vec2(1.0, 0.0)), f.x), mix(acaso(i + vec2(0.0, 1.0)), acaso(i + vec2(1.0, 1.0)), f.x), f.y);
         }`)
       .replace('#include <map_fragment>', `#include <map_fragment>
-        float perto = smoothstep(30.0, 5.0, distance(vMundo, cameraPosition));
+        // (o smoothstep precisa da borda menor primeiro: invertido, o resultado é indefinido no Safari)
+        float perto = 1.0 - smoothstep(5.0, 30.0, distance(vMundo, cameraPosition));
         if (perto > 0.0) {
           vec2 p = vMundo.xz * vec2(14.0, 6.0);
           float n = ruidoSuave(p) * 0.6 + ruidoSuave(p * 2.7) * 0.4;
@@ -1072,7 +1073,7 @@ function criarLuzesAcesas(scene, contorno) {
 
 // ---------- Faixa de LED na frente do anel de cima ----------
 
-// A faixa de LED e as placas mostram "GOL!" enquanto a festa está acima disto (o "uuuh" da trave não chega)
+// A faixa de LED e as placas mostram "GOL!" só em festa acima disto (o "uuuh" da trave não chega)
 const LIMIAR_GOL = 0.6;
 
 function pintarFaixaLed(gol) {
@@ -1127,8 +1128,8 @@ function criarFaixaLed(scene, contorno) {
   const material = new THREE.MeshBasicMaterial({ map: normal, vertexColors: true });
   scene.add(new THREE.Mesh(b.criar(), material));
   return {
-    atualizar(dt, festa, tempo) {
-      const comemorando = festa > LIMIAR_GOL;
+    // comemorando: mostrar o "GOOOL!" (quem decide é o criarCenario)
+    atualizar(dt, comemorando, tempo) {
       material.map = comemorando ? gol : normal;
       material.map.offset.x -= dt * (comemorando ? 0.25 : 0.03);
       // piscando no gol
@@ -1344,8 +1345,9 @@ function criarPlacas(scene, anisotropia) {
   };
   mostrar(-1);
   return {
-    atualizar(festa, tempo) {
-      if (festa > LIMIAR_GOL) mostrar(LINHA_GOL[Math.sin(tempo * 12) > 0 ? 0 : 1]);
+    // comemorando: mostrar o "GOOOL!" piscando (quem decide é o criarCenario)
+    atualizar(comemorando, tempo) {
+      if (comemorando) mostrar(LINHA_GOL[Math.sin(tempo * 12) > 0 ? 0 : 1]);
       else mostrar(-1);
     },
   };
@@ -1402,159 +1404,735 @@ function criarBandeirinhas(scene, metal) {
 
 // ---------- Gol, traves e rede ----------
 
-// Malha da rede: losangos (como rede de verdade). De longe vira um véu branco, sem "chuvisco".
-function texturaRede() {
-  const [canvas, ctx] = novoCanvas(64, 64);
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-  ctx.lineWidth = 7;
+// Padrões dos números do cenário. O main copia para CONFIG.cenario (o que já estiver lá tem prioridade),
+// e o painel de ajuste mexe neles na hora.
+export const PADRAO_CENARIO = {
+  festaSegura: 1.6,   // s: torcida no auge da festa
+  festaDuracao: 3,    // s: tempo para a torcida acalmar depois do auge
+  festaPlacas: 1.9,   // s: placas e faixa de LED mostrando "GOOOL!" (acabam antes da próxima cobrança)
+  redeFirmeza: 8,     // m/s: velocidade das ondas na rede (mais = rede mais esticada: volta mais rápido)
+  redeFreio: 2.6,     // quanto o balanço da rede perde por segundo (menos = balança mais vezes)
+  redePeso: 1,        // peso da rede (mais = mais caída e balança mais pesada e lenta)
+  redeEmpurrao: 1,    // quanto a bola "chuta" a rede quando bate nela (por fora, no teto, na lateral)
+  traveTremor: 1,     // quanto o gol treme quando a bola bate na trave ou no travessão (0 = nada)
+};
+
+// Lê um número do CONFIG.cenario; se faltar ou não for número, usa o padrão
+function ajuste(CONFIG, nome) {
+  const v = CONFIG.cenario ? CONFIG.cenario[nome] : undefined;
+  return Number.isFinite(v) ? v : PADRAO_CENARIO[nome];
+}
+const limitar = (v, a, b) => Math.min(b, Math.max(a, v));
+
+// Divisões de cada pano da rede do nosso gol (pontos = divisões + 1 em cada direção): 1.402 pontos no total
+const DIVISOES = { fundo: [40, 13], teto: [40, 11], lateral: [11, 13] };
+const CONE = 1.1;          // inclinação da "bolsa" em volta da bola (mais = bolsa mais estreita e funda)
+const ANCORA = 20;         // puxão fraco de cada ponto de volta para o lugar (1/s²)
+const FREIO_FINO = 4;      // freio das ondinhas curtas (tira o tremido sem segurar o balanço grande)
+const PASSO_MAXIMO = 1 / 120; // s: passo da simulação (num quadro de 1/60 s são 2 passos)
+
+// Quanto um ponto da estrutura do nosso gol sai do lugar: tremor da bola na trave e o puxão da rede
+// na estrutura de trás quando a bola estufa o fundo. A mesma conta existe em GLSL (FERRO_GLSL), para os
+// ferros (desenhados pela placa de vídeo) e as bordas da rede (presas neles) andarem juntos.
+// f = { amp, xh, trav, recuo }: amplitude do tremor agora (m), x da batida, 1 = travessão, puxão de trás (m)
+function deslocarFerro(x, y, z, f, meia, A, P, saida, i) {
+  const fy = limitar(y / A, 0, 1);
+  const fz = limitar(-z / P, 0, 1);
+  const g = (x - f.xh) / 2.2;
+  const perto = Math.exp(-g * g);
+  const frente = fy * (0.5 + 0.5 * perto) * (1 - 0.6 * fz);
+  const s = limitar((x + meia) / (2 * meia), 0, 1);
+  const topo = suave((y - (A - 0.4)) / 0.4);
+  const lado = x < 0 ? -1 : 1;
+  const xr = x / meia;
+  const tras = fz * fz * fy * Math.max(0, 1 - 0.5 * xr * xr);
+  saida[i] = f.amp * (1 - f.trav) * 0.5 * fy * (1 - fz) * perto * lado - 0.3 * f.recuo * fz * fz * fy * lado * Math.abs(xr);
+  saida[i + 1] = f.amp * f.trav * Math.sin(Math.PI * s) * topo - 0.35 * f.recuo * tras * fy;
+  saida[i + 2] = -f.amp * frente - f.recuo * tras;
+}
+
+const FERRO_GLSL = /* glsl */ `
+  uniform vec4 uTreme; // amplitude do tremor, x da batida, quanto é travessão (0 a 1), puxão da estrutura de trás
+  uniform vec4 uGol;   // meia largura, altura e profundidade do gol
+  vec3 deslocarFerro(vec3 p) {
+    float meia = uGol.x;
+    float A = uGol.y;
+    float P = uGol.z;
+    float amp = uTreme.x;
+    float trav = uTreme.z;
+    float recuo = uTreme.w;
+    float fy = clamp(p.y / A, 0.0, 1.0);
+    float fz = clamp(-p.z / P, 0.0, 1.0);
+    float g = (p.x - uTreme.y) / 2.2;
+    float perto = exp(-g * g);
+    float frente = fy * (0.5 + 0.5 * perto) * (1.0 - 0.6 * fz);
+    float s = clamp((p.x + meia) / (2.0 * meia), 0.0, 1.0);
+    float topo = smoothstep(A - 0.4, A, p.y);
+    float lado = p.x < 0.0 ? -1.0 : 1.0;
+    float xr = p.x / meia;
+    float tras = fz * fz * fy * max(0.0, 1.0 - 0.5 * xr * xr);
+    return vec3(
+      amp * (1.0 - trav) * 0.5 * fy * (1.0 - fz) * perto * lado - 0.3 * recuo * fz * fz * fy * lado * abs(xr),
+      amp * trav * sin(PI * s) * topo - 0.35 * recuo * tras * fy,
+      -amp * frente - recuo * tras);
+  }`;
+
+// A rede do nosso gol como pano: fundo, teto e as duas laterais, cada um uma grade de pontos ligados aos
+// vizinhos por molas. Cada ponto guarda quanto saiu do lugar (u) e a velocidade (v); as molas puxam cada
+// ponto para a média dos vizinhos, então um empurrão vira ondas que correm pelo pano e voltam das bordas.
+// As bordas ficam presas nos ferros (traves, travessão, chão e estrutura de trás) e andam junto com eles.
+// A bola empurra os pontos que estão no caminho e a rede forma uma bolsa em volta dela (os fios não
+// esticam sem fim): a bola nunca aparece do lado de fora. Não usa o Three.js (dá para medir no Node).
+export function criarMalhaRede(CONFIG) {
+  const { golLargura: L, golAltura: A, golProfundidade: P, raioTrave: R } = CONFIG;
+  const meia = L / 2;
+  const sen = (a) => Math.sin(Math.PI * a);
+
+  // Cada pano: origem (canto s = 0, t = 0), eixos s e t, normal "para fora do gol", tamanho e caimento.
+  // O caimento (em metros, para fora do gol) é o jeito da rede parada: o pé do fundo frouxo encostado no
+  // chão, o teto cedendo no meio e as laterais um pouco estufadas.
+  const paineis = [];
+  let total = 0;
+  const painel = (nome, [ns, nt], origem, eixoS, eixoT, normal, compS, compT, caimento, apoio) => {
+    paineis.push({
+      nome, ns, nt, W: ns + 1, base: total, origem, eixoS, eixoT, normal, compS, compT,
+      hs: compS / ns, ht: compT / nt, caimento, apoio, lado: 0, kS: 0, kT: 0,
+    });
+    total += (ns + 1) * (nt + 1);
+  };
+  painel('fundo', DIVISOES.fundo, [-meia, 0, -P], [1, 0, 0], [0, 1, 0], [0, 0, -1], L, A,
+    (s, t) => 0.1 * (1 - t) ** 3 * suave((Math.min(s, 1 - s) * L) / 0.6) + 0.035 * sen(s) * sen(t), false);
+  painel('teto', DIVISOES.teto, [-meia, A, -R], [1, 0, 0], [0, 0, -1], [0, 1, 0], L, P - R,
+    (s, t) => -0.065 * sen(s) * sen(t), true);
+  for (const lado of [-1, 1]) {
+    painel(lado < 0 ? 'esquerda' : 'direita', DIVISOES.lateral, [lado * meia, 0, -R], [0, 0, -1], [0, 1, 0], [lado, 0, 0], P - R, A,
+      (s, t) => 0.05 * sen(s) * sen(t), false);
+  }
+  const fundo = paineis[0];
+
+  const N = total;
+  const base = new Float64Array(3 * N);    // ponto com a rede lisa (sem caimento)
+  const caimento = new Float64Array(N);    // caimento de cada ponto (para fora do gol), com peso 1
+  const coordS = new Float64Array(N);      // posição no pano, em metros
+  const coordT = new Float64Array(N);
+  const presos = [];                       // pontos das bordas (presos nos ferros)
+  const indices = [];
+  for (const p of paineis) {
+    for (let j = 0; j <= p.nt; j++) {
+      for (let k = 0; k <= p.ns; k++) {
+        const i = p.base + j * p.W + k;
+        coordS[i] = (k / p.ns) * p.compS;
+        coordT[i] = (j / p.nt) * p.compT;
+        for (let q = 0; q < 3; q++) base[3 * i + q] = p.origem[q] + p.eixoS[q] * coordS[i] + p.eixoT[q] * coordT[i];
+        caimento[i] = p.caimento(k / p.ns, j / p.nt);
+        if (j === 0 || k === 0 || j === p.nt || k === p.ns) presos.push(i);
+        if (j < p.nt && k < p.ns) indices.push(i, i + 1, i + p.W + 1, i, i + p.W + 1, i + p.W);
+      }
+    }
+  }
+
+  const u = new Float64Array(3 * N);       // quanto cada ponto saiu do lugar
+  const v = new Float64Array(3 * N);       // velocidade
+  const acc = new Float64Array(3 * N);
+  const posicoes = new Float32Array(3 * N); // para desenhar
+  const normais = new Float32Array(3 * N);
+  const painelDe = new Uint8Array(N);     // de qual pano é cada ponto
+  paineis.forEach((p, n) => painelDe.fill(n, p.base, p.base + p.W * (p.nt + 1)));
+
+  const estado = {
+    acordada: true, quietos: 0, peso: -1, firmeza: -1,
+    bola: { x: 0, y: 0, z: 0, raio: CONFIG.raioBola || 0.11, nova: false, valida: false, x0: 0, y0: 0, z0: 0, anterior: false },
+    empurrao: null,                                   // estufar(): bola "de mentira" no fundo da rede
+    tremor: { t: 10, forca: 0, xh: 0, trav: 0 },
+    recuo: { x: 0, v: 0, alvo: 0 },
+    ferro: { amp: 0, xh: 0, trav: 0, recuo: 0 },      // estado atual da estrutura (vai para os ferros)
+    ferroMexido: false,
+  };
+
+  // ----- Um passo da simulação (h segundos) -----
+  function integrar(h, gamma) {
+    let maxV = 0;
+    let maxU = 0;
+    for (const p of paineis) {
+      const { W, ns, nt, kS, kT } = p;
+      const beta = FREIO_FINO;
+      for (let j = 1; j < nt; j++) {
+        let i = p.base + j * W + 1;
+        for (let k = 1; k < ns; k++, i++) {
+          const a = 3 * i;
+          const e = a - 3;
+          const d = a + 3;
+          const b = a - 3 * W;
+          const c = a + 3 * W;
+          let ui = u[a];
+          let vi = v[a];
+          acc[a] = kS * (u[e] + u[d] - 2 * ui) + kT * (u[b] + u[c] - 2 * ui) - ANCORA * ui
+            + beta * (v[e] + v[d] + v[b] + v[c] - 4 * vi) - gamma * vi;
+          ui = u[a + 1];
+          vi = v[a + 1];
+          acc[a + 1] = kS * (u[e + 1] + u[d + 1] - 2 * ui) + kT * (u[b + 1] + u[c + 1] - 2 * ui) - ANCORA * ui
+            + beta * (v[e + 1] + v[d + 1] + v[b + 1] + v[c + 1] - 4 * vi) - gamma * vi;
+          ui = u[a + 2];
+          vi = v[a + 2];
+          acc[a + 2] = kS * (u[e + 2] + u[d + 2] - 2 * ui) + kT * (u[b + 2] + u[c + 2] - 2 * ui) - ANCORA * ui
+            + beta * (v[e + 2] + v[d + 2] + v[b + 2] + v[c + 2] - 4 * vi) - gamma * vi;
+        }
+      }
+      for (let j = 1; j < nt; j++) {
+        let a = 3 * (p.base + j * W + 1);
+        for (let k = 1; k < ns; k++, a += 3) {
+          const vx = (v[a] += acc[a] * h);
+          const vy = (v[a + 1] += acc[a + 1] * h);
+          const vz = (v[a + 2] += acc[a + 2] * h);
+          const ux = (u[a] += vx * h);
+          const uy = (u[a + 1] += vy * h);
+          const uz = (u[a + 2] += vz * h);
+          const v2 = vx * vx + vy * vy + vz * vz;
+          const u2 = ux * ux + uy * uy + uz * uz;
+          if (v2 > maxV) maxV = v2;
+          if (u2 > maxU) maxU = u2;
+        }
+      }
+    }
+    return maxV > 1.6e-5 || maxU > 9e-6; // ainda mexendo? (mais de 4 mm/s ou 3 mm fora do lugar)
+  }
+
+  // Tremor da trave (vibração rápida que some em ~0,4 s) e puxão da estrutura de trás (mola mais lenta)
+  function moverFerro(h) {
+    const tr = estado.tremor;
+    tr.t += h;
+    const f = estado.ferro;
+    f.amp = tr.t < 0.6 ? tr.forca * 0.028 * Math.exp(-tr.t / 0.11) * Math.sin(2 * Math.PI * 13 * tr.t) : 0;
+    f.xh = tr.xh;
+    f.trav = tr.trav;
+    const r = estado.recuo;
+    const w = 2 * Math.PI * 4;
+    r.v += (w * w * (r.alvo - r.x) - 2 * 0.2 * w * r.v) * h;
+    r.x += r.v * h;
+    f.recuo = r.x;
+    const mexendo = f.amp !== 0 || Math.abs(r.x) > 2e-5 || Math.abs(r.v) > 2e-4 || r.alvo > 0;
+    if (!mexendo) {
+      r.x = r.v = f.recuo = 0;
+      if (!estado.ferroMexido) return false;
+    }
+    // As bordas da rede andam junto com os ferros
+    for (const i of presos) {
+      const b = estado.peso * caimento[i];
+      const p = paineis[painelDe[i]];
+      deslocarFerro(base[3 * i] + b * p.normal[0], base[3 * i + 1] + b * p.normal[1], base[3 * i + 2] + b * p.normal[2],
+        f, meia, A, P, u, 3 * i);
+    }
+    estado.ferroMexido = mexendo;
+    return mexendo;
+  }
+
+  // A bola contra um pano. (bx, by, bz) = centro, (wx, wy, wz) = velocidade.
+  // ladoForcado: -1 = a bola está do lado de dentro do gol (usado pelo estufar).
+  // Devolve quanto a bola afundou o pano para fora do gol (0 se não encostou).
+  function colidir(p, bx, by, bz, wx, wy, wz, raio, ladoForcado, empurrao) {
+    const ox = bx - p.origem[0];
+    const oy = by - p.origem[1];
+    const oz = bz - p.origem[2];
+    const [s0, s1, s2] = p.eixoS;
+    const [t0, t1, t2] = p.eixoT;
+    const [n0, n1, n2] = p.normal;
+    const bs = ox * s0 + oy * s1 + oz * s2;
+    const bt = ox * t0 + oy * t1 + oz * t2;
+    const bn = ox * n0 + oy * n1 + oz * n2;
+    // De que lado do pano a bola está: decidido longe dele, e mantido enquanto ela está na frente do pano
+    // (a bola não atravessa a rede, então o lado não muda no meio do caminho)
+    let lado = ladoForcado;
+    if (!lado) {
+      const naArea = bs > -raio && bs < p.compS + raio && bt > -raio && bt < p.compT + raio;
+      if (naArea) {
+        if (p.lado === 0) p.lado = bn > 0 ? 1 : -1;
+      } else if (Math.abs(bn) > raio + 0.04) {
+        p.lado = bn > 0 ? 1 : -1;
+      }
+      lado = p.lado;
+    }
+    if (lado === 0) return 0;
+    const rEff = raio + 0.015;                       // a bola mais a grossura do fio
+    const ponta = lado < 0 ? bn + rEff : bn - rEff;  // até onde a rede tem de ir (para fora do gol = +)
+    const folga = lado < 0 ? ponta + 0.4 : 0.4 - ponta; // a rede balançando chega a uns 40 cm do lugar
+    if (folga <= 0) return 0;
+    const plato = 0.75 * Math.max(p.hs, p.ht);       // a ponta da bolsa cobre a bola mesmo entre dois pontos
+    const alcance = Math.min(2.5, plato + rEff + folga / CONE);
+    if (bs < -alcance || bs > p.compS + alcance || bt < -alcance || bt > p.compT + alcance) return 0;
+    const k0 = Math.max(1, Math.floor((bs - alcance) / p.hs));
+    const k1 = Math.min(p.ns - 1, Math.ceil((bs + alcance) / p.hs));
+    const j0 = Math.max(1, Math.floor((bt - alcance) / p.ht));
+    const j1 = Math.min(p.nt - 1, Math.ceil((bt + alcance) / p.ht));
+    const vbn = (wx * n0 + wy * n1 + wz * n2) * empurrao;
+    const peso = estado.peso;
+    const xt = CONE * rEff;                            // onde a curva da ponta vira cone
+    const ft = (xt * xt) / (2 * rEff);
+    // No teto, por fora: a bola parada em cima puxa a rede até encostar nela (senão parece flutuar)
+    const apoio = p.apoio && lado > 0 && bn - raio < 0.03 && wx * wx + wy * wy + wz * wz < 4;
+    for (let j = j0; j <= j1; j++) {
+      let i = p.base + j * p.W + k0;
+      for (let k = k0; k <= k1; k++, i++) {
+        const ds = coordS[i] - bs;
+        const dt = coordT[i] - bt;
+        const x = Math.sqrt(ds * ds + dt * dt) - plato;
+        const f = x <= 0 ? 0 : x < xt ? (x * x) / (2 * rEff) : ft + CONE * (x - xt);
+        const a = 3 * i;
+        const n = peso * caimento[i] + u[a] * n0 + u[a + 1] * n1 + u[a + 2] * n2;
+        let corrigir = 0;
+        if (lado < 0) {
+          if (n < ponta - f) corrigir = ponta - f - n;
+        } else if (n > ponta + f) {
+          corrigir = ponta + f - n;
+        } else if (apoio && x < 0.5 * rEff) {
+          corrigir = (ponta + f - n) * 0.3;
+        }
+        if (corrigir === 0) continue;
+        u[a] += corrigir * n0;
+        u[a + 1] += corrigir * n1;
+        u[a + 2] += corrigir * n2;
+        // O ponto empurrado vai junto com a bola
+        const vn = v[a] * n0 + v[a + 1] * n1 + v[a + 2] * n2;
+        const dv = lado < 0 ? Math.max(0, vbn - vn) : Math.min(0, vbn - vn);
+        v[a] += dv * n0;
+        v[a + 1] += dv * n1;
+        v[a + 2] += dv * n2;
+      }
+    }
+    return lado < 0 ? Math.max(0, ponta) : 0;
+  }
+
+  // Posições e normais para desenhar
+  function escrever() {
+    const peso = estado.peso;
+    for (const p of paineis) {
+      const [n0, n1, n2] = p.normal;
+      const fim = p.base + p.W * (p.nt + 1);
+      for (let i = p.base; i < fim; i++) {
+        const a = 3 * i;
+        const b = peso * caimento[i];
+        posicoes[a] = base[a] + b * n0 + u[a];
+        posicoes[a + 1] = base[a + 1] + b * n1 + u[a + 1];
+        posicoes[a + 2] = base[a + 2] + b * n2 + u[a + 2];
+      }
+      for (let j = 0; j <= p.nt; j++) {
+        const jd = p.base + Math.max(0, j - 1) * p.W;
+        const ju = p.base + Math.min(p.nt, j + 1) * p.W;
+        const linha = p.base + j * p.W;
+        for (let k = 0; k <= p.ns; k++) {
+          const e = 3 * (linha + Math.max(0, k - 1));
+          const d = 3 * (linha + Math.min(p.ns, k + 1));
+          const b = 3 * (jd + k);
+          const c = 3 * (ju + k);
+          const sx = posicoes[d] - posicoes[e];
+          const sy = posicoes[d + 1] - posicoes[e + 1];
+          const sz = posicoes[d + 2] - posicoes[e + 2];
+          const tx = posicoes[c] - posicoes[b];
+          const ty = posicoes[c + 1] - posicoes[b + 1];
+          const tz = posicoes[c + 2] - posicoes[b + 2];
+          const nx = sy * tz - sz * ty;
+          const ny = sz * tx - sx * tz;
+          const nz = sx * ty - sy * tx;
+          const l = Math.hypot(nx, ny, nz) || 1;
+          const a = 3 * (linha + k);
+          normais[a] = nx / l;
+          normais[a + 1] = ny / l;
+          normais[a + 2] = nz / l;
+        }
+      }
+    }
+  }
+
+  function acordar() {
+    estado.acordada = true;
+    estado.quietos = 0;
+  }
+
+  function bolaPerto(b) {
+    return b.valida && Math.abs(b.x) < meia + 1.2 && b.y < A + 1.2 && b.z < 1.2 && b.z > -P - 1.6;
+  }
+
+  // ----- Um quadro: devolve true se a rede mudou (precisa ser desenhada de novo) -----
+  function atualizar(dt) {
+    const b = estado.bola;
+    b.valida = b.nova;
+    b.nova = false;
+    if (!(dt > 0)) return false;
+    dt = Math.min(dt, 0.1);
+    const peso = limitar(ajuste(CONFIG, 'redePeso'), 0.2, 3);
+    const firmeza = limitar(ajuste(CONFIG, 'redeFirmeza'), 1, 30);
+    if (peso !== estado.peso || firmeza !== estado.firmeza) {
+      estado.peso = peso;
+      estado.firmeza = firmeza;
+      acordar();
+    }
+    const perto = bolaPerto(b);
+    if (!perto) for (const p of paineis) p.lado = 0;
+    if (perto || estado.empurrao || estado.tremor.t < 0.6 || estado.ferroMexido) acordar();
+    if (!estado.acordada) {
+      guardarBola(b);
+      return false;
+    }
+
+    // Molas: a rede mais pesada tem ondas mais lentas
+    const c = firmeza / Math.sqrt(peso);
+    let maiorK = 0;
+    for (const p of paineis) {
+      p.kS = (c / p.hs) ** 2;
+      p.kT = (c / p.ht) ** 2;
+      maiorK = Math.max(maiorK, p.kS + p.kT);
+    }
+    // Passo pequeno o bastante para a conta não "explodir" com molas firmes
+    const hMax = Math.min(PASSO_MAXIMO, 1.5 / Math.sqrt(4 * maiorK + ANCORA + 8 * FREIO_FINO ** 2));
+    let passos = Math.ceil(dt / hMax - 1e-9);
+    let h = dt / passos;
+    if (passos > 8) {
+      passos = 8; // celular travando: a rede anda um pouco mais devagar, mas não explode
+      h = hMax;
+    }
+    const gamma = limitar(ajuste(CONFIG, 'redeFreio'), 0, 30);
+    const empurrao = limitar(ajuste(CONFIG, 'redeEmpurrao'), 0, 3);
+
+    // A bola vai da posição do quadro anterior até a de agora, passo a passo (não atravessa a rede)
+    const anda = b.valida && b.anterior && Math.hypot(b.x - b.x0, b.y - b.y0, b.z - b.z0) < Math.max(3, 45 * dt);
+    const wx = anda ? (b.x - b.x0) / dt : 0;
+    const wy = anda ? (b.y - b.y0) / dt : 0;
+    const wz = anda ? (b.z - b.z0) / dt : 0;
+    let mexendo = false;
+    let fundura = 0;
+    for (let n = 0; n < passos; n++) {
+      const ferro = moverFerro(h);
+      mexendo = integrar(h, gamma) || ferro || mexendo;
+      if (b.valida) {
+        const f = anda ? (n + 1) / passos : 1;
+        const bx = anda ? b.x0 + (b.x - b.x0) * f : b.x;
+        const by = anda ? b.y0 + (b.y - b.y0) * f : b.y;
+        const bz = anda ? b.z0 + (b.z - b.z0) * f : b.z;
+        if (perto) {
+          for (const p of paineis) {
+            const afundou = colidir(p, bx, by, bz, wx, wy, wz, b.raio, 0, empurrao);
+            if (p === fundo) fundura = Math.max(fundura, afundou);
+          }
+        }
+      }
+      const e = estado.empurrao;
+      if (e) {
+        const z = -P + b.raio - e.profundidade;
+        fundura = Math.max(fundura, colidir(fundo, e.x, e.y, z, 0, 0, -6, b.raio, -1, empurrao));
+      }
+      // A bola afundando o fundo puxa a estrutura de trás (e o resto do gol balança junto)
+      estado.recuo.alvo = 0.045 * Math.min(1, fundura / 0.5);
+    }
+    estado.empurrao = null;
+    guardarBola(b);
+    escrever();
+
+    // Rede parada e sem bola por perto: para de calcular (economiza bateria)
+    if (!perto && !mexendo && estado.tremor.t >= 0.6) {
+      if (++estado.quietos >= 15) {
+        u.fill(0);
+        v.fill(0);
+        escrever();
+        estado.acordada = false;
+      }
+    } else {
+      estado.quietos = 0;
+    }
+    return true;
+  }
+
+  function guardarBola(b) {
+    b.anterior = b.valida;
+    b.x0 = b.x;
+    b.y0 = b.y;
+    b.z0 = b.z;
+  }
+
+  estado.peso = limitar(ajuste(CONFIG, 'redePeso'), 0.2, 3);
+  escrever();
+
+  return {
+    total: N,
+    paineis,
+    posicoes,
+    normais,
+    indices: new Uint16Array(indices),
+    ferro: estado.ferro,
+    get acordada() {
+      return estado.acordada;
+    },
+    // Coordenadas da textura: uma repetição a cada "celula" metros
+    uvs(celula) {
+      const uv = new Float32Array(2 * N);
+      for (let i = 0; i < N; i++) {
+        uv[2 * i] = coordS[i] / celula;
+        uv[2 * i + 1] = coordT[i] / celula;
+      }
+      return uv;
+    },
+    // Posição da bola neste quadro (chamar a cada quadro, antes de atualizar)
+    bola(pos, raio) {
+      const b = estado.bola;
+      if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) return;
+      b.x = pos.x;
+      b.y = pos.y;
+      b.z = pos.z;
+      if (Number.isFinite(raio) && raio > 0) b.raio = raio;
+      b.nova = true;
+    },
+    // Bola afundando o fundo da rede no ponto (x, y), "profundidade" metros além da linha do fundo
+    estufar(x, y, profundidade) {
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(profundidade) || profundidade <= 0) return;
+      const e = estado.empurrao;
+      if (!e || profundidade > e.profundidade) estado.empurrao = { x, y, profundidade: Math.min(profundidade, 1.2) };
+      acordar();
+    },
+    // Bola na trave ou no travessão: o gol treme (intensidade de 0 a 1)
+    tremer(intensidade = 1, forcaExtra = 1) {
+      const i = limitar(Number(intensidade), 0, 1) * limitar(Number(forcaExtra), 0, 3);
+      if (!(i > 0)) return;
+      const b = estado.bola;
+      const tr = estado.tremor;
+      // Onde bateu: pela última posição da bola (perto do travessão = treme mais para cima e para baixo)
+      tr.xh = b.valida || b.anterior ? limitar(b.x, -meia - 0.2, meia + 0.2) : 0;
+      tr.trav = (b.valida || b.anterior) && b.y > A - 0.15 && Math.abs(b.x) < meia - 0.1 ? 1 : 0.25;
+      tr.forca = tr.t < 0.15 ? Math.max(i, tr.forca) : i;
+      tr.t = 0;
+      // A rede leva um chacoalhão junto com os ferros
+      for (const p of paineis) {
+        const [n0, n1, n2] = p.normal;
+        for (let j = 1; j < p.nt; j++) {
+          for (let k = 1; k < p.ns; k++) {
+            const a = 3 * (p.base + j * p.W + k);
+            const onda = i * 0.35 * sen(k / p.ns) * sen(j / p.nt) * (p.nome === 'teto' ? 1.4 : 1);
+            v[a] += onda * n0;
+            v[a + 1] += onda * n1;
+            v[a + 2] += onda * n2;
+          }
+        }
+      }
+      acordar();
+    },
+    // Nova cobrança: a rede volta ao lugar na hora
+    reiniciar() {
+      u.fill(0);
+      v.fill(0);
+      for (const p of paineis) p.lado = 0;
+      estado.empurrao = null;
+      estado.tremor.t = 10;
+      estado.recuo.x = estado.recuo.v = estado.recuo.alvo = 0;
+      Object.assign(estado.ferro, { amp: 0, recuo: 0 });
+      estado.ferroMexido = false;
+      estado.bola.anterior = estado.bola.valida = estado.bola.nova = false;
+      escrever();
+      estado.acordada = false;
+    },
+    atualizar,
+  };
+}
+
+// Textura da rede: só a transparência (fios brancos num fundo preto opaco; o Three.js usa o canal verde).
+// Assim as versões reduzidas da textura (mipmaps) ficam certas: de longe a rede vira um véu claro e
+// uniforme, sem "chuvisco" e sem bordas escuras.
+function texturaRede(anisotropia) {
+  const T = 128;
+  const [canvas, ctx] = novoCanvas(T, T);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, T, T);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 9;
   ctx.lineCap = 'round';
-  for (const [x0, y0, x1, y1] of [[0, 0, 64, 64], [64, 0, 0, 64], [-64, 0, 64, 128], [0, -64, 128, 64], [128, 0, 0, 128], [64, -64, -64, 64]]) {
+  // Losangos: duas diagonais por quadradinho, mais as cópias que fecham as emendas
+  for (const [x0, y0, x1, y1] of [[0, 0, T, T], [T, 0, 0, T], [-T, 0, T, 2 * T], [0, -T, 2 * T, T], [2 * T, 0, 0, 2 * T], [T, -T, -T, T]]) {
     ctx.beginPath();
     ctx.moveTo(x0, y0);
     ctx.lineTo(x1, y1);
     ctx.stroke();
   }
-  // Branca: dá para tratar como linear, e assim o WebGL 1 (celulares antigos) também faz as versões
-  // reduzidas da textura (sem elas a rede "chuvisca" de longe)
+  // Nós onde os fios se cruzam
+  ctx.fillStyle = '#fff';
+  for (const [x, y] of [[0, 0], [T, 0], [0, T], [T, T], [T / 2, T / 2]]) {
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
   const t = new THREE.CanvasTexture(canvas);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 4;
+  t.anisotropy = anisotropia;
   return t;
 }
 
+// Material da rede: fios brancos com transparência. Dois truques baratos dão volume ao pano:
+// vista de lado, a rede fica mais fechada (os fios se juntam na frente do olho), e a face virada para os
+// refletores fica um pouco mais clara. Assim a bolsa e as ondas aparecem até de frente.
+function criarMaterialRede(anisotropia) {
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xf4f7fb, alphaMap: texturaRede(anisotropia), transparent: true, side: THREE.DoubleSide, depthWrite: false,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vMundoRede;\nvarying vec3 vNormalRede;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        vMundoRede = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vNormalRede = mat3(modelMatrix) * normal;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vMundoRede;\nvarying vec3 vNormalRede;')
+      .replace('#include <alphamap_fragment>', `#include <alphamap_fragment>
+        vec3 nRede = normalize(vNormalRede);
+        float deFrente = dot(nRede, normalize(cameraPosition - vMundoRede));
+        if (deFrente < 0.0) {
+          nRede = -nRede;
+          deFrente = -deFrente;
+        }
+        diffuseColor.a = 1.0 - pow(max(1.0 - diffuseColor.a, 0.0), 1.0 / max(deFrente, 0.25));
+        diffuseColor.rgb *= 0.74 + 0.3 * max(dot(nRede, vec3(-0.35, 0.75, 0.55)), 0.0);`);
+  };
+  material.customProgramCacheKey = () => 'rede-fkl';
+  return material;
+}
+
+// Traves e estrutura. O gol de lá e as hastes das bandeirinhas ficam parados ("metal");
+// o nosso gol ("metalPerto") treme na bola na trave. A rede do gol de lá é fixa ("redeLa").
 function criarGols(CONFIG) {
   const { golLargura: L, golAltura: A, golProfundidade: P, raioTrave: R } = CONFIG;
   const meia = L / 2;
   const metal = new Construtor();
-  const redes = new Construtor();
-  const CELULA = 0.12; // m: tamanho de cada losango da rede
+  const metalPerto = new Construtor();
+  const redeLa = new Construtor();
 
   // Leva um ponto do nosso gol para o gol de lá (meia volta em torno do meio do campo)
   const paraLa = ([x, y, z]) => [-x, y, CAMPO.comprimento - z];
 
   for (const la of [false, true]) {
     const p = la ? paraLa : (v) => v;
+    const m = la ? metal : metalPerto;
     // Traves e travessão: brancos, um pouco mais escuros embaixo (perto da grama)
     const branco = rgb('#f4f6f8');
     const corTrave = (y) => escurecer(branco, 0.72 + 0.28 * suave(y / 0.5));
-    for (const lado of [-1, 1]) tubo(metal, p([lado * (meia + R), 0, 0]), p([lado * (meia + R), A + R, 0]), R, branco, 20, corTrave);
-    tubo(metal, p([-(meia + 2 * R), A + R, 0]), p([meia + 2 * R, A + R, 0]), R, branco, 20);
+    for (const lado of [-1, 1]) tubo(m, p([lado * (meia + R), 0, 0]), p([lado * (meia + R), A + R, 0]), R, branco, 20, corTrave);
+    tubo(m, p([-(meia + 2 * R), A + R, 0]), p([meia + 2 * R, A + R, 0]), R, branco, 20);
     // Estrutura de trás que segura a rede (mais fina)
     const cinza = rgb('#cfd4da');
     const corFina = (y) => escurecer(cinza, 0.7 + 0.3 * suave(y / 0.5));
     const r = 0.025;
     for (const lado of [-1, 1]) {
       const x = lado * meia;
-      tubo(metal, p([x, 0, -P]), p([x, A, -P]), r, cinza, 8, corFina);    // poste de trás
-      tubo(metal, p([x, A, -R]), p([x, A, -P]), r, cinza, 8);             // em cima, da trave para trás
-      tubo(metal, p([x, r, -R]), p([x, r, -P]), r, cinza, 8, corFina);    // no chão, da trave para trás
+      tubo(m, p([x, 0, -P]), p([x, A, -P]), r, cinza, 8, corFina);    // poste de trás
+      tubo(m, p([x, A, -R]), p([x, A, -P]), r, cinza, 8);             // em cima, da trave para trás
+      tubo(m, p([x, r, -R]), p([x, r, -P]), r, cinza, 8, corFina);    // no chão, da trave para trás
     }
-    tubo(metal, p([-meia, A, -P]), p([meia, A, -P]), r, cinza, 8);
-    tubo(metal, p([-meia, r, -P]), p([meia, r, -P]), r, cinza, 8, corFina);
-
-    // Rede: fundo, teto e laterais, com um leve caimento (o teto cede no meio, as laterais estufam
-    // um pouco para fora e o pé do fundo fica frouxo, encostado no chão)
-    const grade = (ns, nt, ponto, compS, compT) => {
-      const inicio = redes.total;
-      for (let j = 0; j <= nt; j++) {
-        for (let i = 0; i <= ns; i++) {
-          redes.vertice(p(ponto(i / ns, j / nt)), [0, 0, 1], [(i / ns) * compS / CELULA, (j / nt) * compT / CELULA], BRANCO, null);
-        }
-      }
-      for (let j = 0; j < nt; j++) {
-        for (let i = 0; i < ns; i++) {
-          const a = inicio + j * (ns + 1) + i;
-          redes.idx.push(a, a + 1, a + ns + 2, a, a + ns + 2, a + ns + 1);
-        }
-      }
-      return { inicio, fim: redes.total };
-    };
-    const fundo = grade(40, 16, (s, t) => [-meia + s * L, t * A, -P - 0.1 * (1 - t) ** 3], L, A);
-    grade(24, 7, (s, t) => [-meia + s * L, A - 0.09 * Math.sin(Math.PI * s) * Math.sin(Math.PI * t), -R - t * (P - R)], L, P);
-    for (const lado of [-1, 1]) {
-      grade(7, 10, (s, t) => [lado * (meia + 0.06 * Math.sin(Math.PI * s) * Math.sin(Math.PI * t)), t * A, -R - s * (P - R)], P, A);
-    }
-    if (!la) redes.fundoPerto = fundo;
+    tubo(m, p([-meia, A, -P]), p([meia, A, -P]), r, cinza, 8);
+    tubo(m, p([-meia, r, -P]), p([meia, r, -P]), r, cinza, 8, corFina);
   }
 
-  return { metal, redes };
+  // Rede do gol de lá (parada, longe da câmera): o mesmo caimento da nossa
+  const CELULA = CELULA_REDE;
+  const grade = (ns, nt, ponto, compS, compT) => {
+    const inicio = redeLa.total;
+    for (let j = 0; j <= nt; j++) {
+      for (let i = 0; i <= ns; i++) {
+        redeLa.vertice(paraLa(ponto(i / ns, j / nt)), [0, 0, 1], [(i / ns) * compS / CELULA, (j / nt) * compT / CELULA], BRANCO, null);
+      }
+    }
+    for (let j = 0; j < nt; j++) {
+      for (let i = 0; i < ns; i++) {
+        const a = inicio + j * (ns + 1) + i;
+        redeLa.idx.push(a, a + 1, a + ns + 2, a, a + ns + 2, a + ns + 1);
+      }
+    }
+  };
+  const sen = (a) => Math.sin(Math.PI * a);
+  grade(24, 8, (s, t) => [-meia + s * L, t * A, -P - 0.1 * (1 - t) ** 3 - 0.035 * sen(s) * sen(t)], L, A);
+  grade(24, 7, (s, t) => [-meia + s * L, A - 0.065 * sen(s) * sen(t), -R - t * (P - R)], L, P - R);
+  for (const lado of [-1, 1]) {
+    grade(7, 8, (s, t) => [lado * (meia + 0.05 * sen(s) * sen(t)), t * A, -R - s * (P - R)], P - R, A);
+  }
+
+  return { metal, metalPerto, redeLa };
 }
 
-function montarRede(scene, construtorRedes, CONFIG) {
-  const { golLargura: L, golAltura: A } = CONFIG;
-  const geometria = construtorRedes.criar();
-  const material = new THREE.MeshBasicMaterial({
-    map: texturaRede(), color: 0xf2f5fa, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+const CELULA_REDE = 0.13; // m: tamanho de cada quadradinho da textura da rede (dois losangos)
+
+// Ferros do nosso gol: o mesmo brilho de tinta dos outros, mais o tremor (calculado na placa de vídeo)
+function criarMaterialFerroPerto(uniformesFerro) {
+  const material = new THREE.MeshPhongMaterial({
+    vertexColors: true, shininess: 60, specular: 0x3a3a3a, emissive: 0x4a4d52,
   });
-  const malha = new THREE.Mesh(geometria, material);
-  malha.renderOrder = 2;
-  scene.add(malha);
-
-  // Fundo da rede do nosso gol: guarda a posição de descanso de cada ponto para deformar a partir dela
-  const { inicio, fim } = construtorRedes.fundoPerto;
-  const pos = geometria.attributes.position;
-  const base = new Float32Array((fim - inicio) * 3);
-  for (let i = inicio; i < fim; i++) {
-    base[(i - inicio) * 3] = pos.getX(i);
-    base[(i - inicio) * 3 + 1] = pos.getY(i);
-    base[(i - inicio) * 3 + 2] = pos.getZ(i);
-  }
-
-  const estado = { amp: 0, vel: 0, alvo: 0, x: 0, y: 0, deformada: false };
-  const meiaL = L / 2;
-  const aplicar = () => {
-    for (let i = inicio; i < fim; i++) {
-      const k = (i - inicio) * 3;
-      const x = base[k];
-      const y = base[k + 1];
-      const distancia2 = (x - estado.x) ** 2 + (y - estado.y) ** 2;
-      // Presa nas bordas (traves, travessão e chão), solta no meio
-      const borda = suave((meiaL - Math.abs(x)) / 0.7) * suave(Math.min(y, A - y) / 0.5);
-      pos.setZ(i, base[k + 2] - estado.amp * Math.exp(-distancia2 / 0.7) * borda);
-    }
-    pos.needsUpdate = true;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTreme = uniformesFerro.treme;
+    shader.uniforms.uGol = uniformesFerro.gol;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n${FERRO_GLSL}`)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed += deslocarFerro(position);');
   };
+  material.customProgramCacheKey = () => 'ferro-gol-fkl';
+  return material;
+}
+
+function montarRede(scene, CONFIG, construtorRedeLa, anisotropia, uniformesFerro) {
+  const { golLargura: L, golAltura: A, golProfundidade: P } = CONFIG;
+  const material = criarMaterialRede(anisotropia);
+
+  // Gol de lá: rede parada
+  const geometriaLa = construtorRedeLa.criar();
+  geometriaLa.computeVertexNormals();
+  const redeLa = new THREE.Mesh(geometriaLa, material);
+  redeLa.renderOrder = 2;
+  scene.add(redeLa);
+
+  // Nosso gol: o pano que balança
+  const malha = criarMalhaRede(CONFIG);
+  const geometria = new THREE.BufferGeometry();
+  const posicao = new THREE.BufferAttribute(malha.posicoes, 3);
+  const normal = new THREE.BufferAttribute(malha.normais, 3);
+  posicao.setUsage(THREE.DynamicDrawUsage);
+  normal.setUsage(THREE.DynamicDrawUsage);
+  geometria.setAttribute('position', posicao);
+  geometria.setAttribute('normal', normal);
+  geometria.setAttribute('uv', new THREE.BufferAttribute(malha.uvs(CELULA_REDE), 2));
+  geometria.setIndex(new THREE.BufferAttribute(malha.indices, 1));
+  // Esfera que sempre contém a rede, mesmo estufada (a câmera usa para saber se ela aparece)
+  geometria.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, A / 2, -P / 2), Math.hypot(L / 2 + 0.6, A / 2 + 0.6, P / 2 + 1.4));
+  const redePerto = new THREE.Mesh(geometria, material);
+  redePerto.renderOrder = 2;
+  scene.add(redePerto);
 
   return {
-    // A bola está empurrando o fundo da rede no ponto (x, y), afundada "profundidade" metros
+    // Posição da bola neste quadro (chamar a cada quadro, antes de cenario.atualizar)
+    bola(pos, raio) {
+      malha.bola(pos, raio);
+    },
+    // Empurrão extra no fundo da rede (o evento "fundo" da física): ponto (x, y) e quanto afundou
     estufar(x, y, profundidade) {
-      estado.x = x;
-      estado.y = y;
-      estado.alvo = Math.max(estado.alvo, profundidade + 0.03);
+      malha.estufar(x, y, profundidade);
     },
-    // Volta a rede ao lugar na hora (nova cobrança)
+    // Nova cobrança: a rede volta ao lugar na hora
     reiniciar() {
-      estado.amp = estado.vel = estado.alvo = 0;
-      if (estado.deformada) aplicar();
-      estado.deformada = false;
+      malha.reiniciar();
+      posicao.needsUpdate = true;
+      normal.needsUpdate = true;
     },
+    tremer(intensidade) {
+      malha.tremer(intensidade, ajuste(CONFIG, 'traveTremor'));
+    },
+    get mexendo() {
+      return malha.acordada;
+    },
+    malha,
     atualizar(dt) {
-      if (estado.alvo > estado.amp) {
-        // Enquanto a bola empurra, a rede acompanha
-        estado.amp += (estado.alvo - estado.amp) * Math.min(1, dt * 40);
-        estado.vel = 0;
-      } else {
-        // Depois volta como uma mola amortecida: passa um pouquinho do lugar e assenta
-        const ajustes = CONFIG.cenario || {};
-        const mola = ajustes.redeMola ?? 70;               // mais = volta mais rápido
-        const amortecimento = ajustes.redeAmortecimento ?? 8; // menos = balança mais vezes
-        estado.vel += (-mola * estado.amp - amortecimento * estado.vel) * dt;
-        estado.amp += estado.vel * dt;
+      if (malha.atualizar(dt)) {
+        posicao.needsUpdate = true;
+        normal.needsUpdate = true;
       }
-      estado.alvo = 0;
-      const mexendo = Math.abs(estado.amp) > 0.0005 || Math.abs(estado.vel) > 0.005;
-      if (!mexendo && !estado.deformada) return;
-      if (!mexendo) estado.amp = estado.vel = 0;
-      estado.deformada = mexendo;
-      aplicar();
+      const f = malha.ferro;
+      uniformesFerro.treme.value.set(f.amp, f.xh, f.trav, f.recuo);
     },
   };
 }
 
 // ---------- Tudo junto ----------
 
-// Monta o cenário na cena. CONFIG: medidas do gol (golLargura, golAltura, golProfundidade, raioTrave)
-// e, se existirem, CONFIG.cenario.festaDuracao e CONFIG.cenario.festaSegura.
+// Monta o cenário na cena. CONFIG: medidas do gol (golLargura, golAltura, golProfundidade, raioTrave, raioBola)
+// e os ajustes de CONFIG.cenario (padrões em PADRAO_CENARIO).
 export function criarCenario(scene, renderer, CONFIG) {
   sorteio = criarSorteio(2026);
   const anisotropia = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -1570,54 +2148,84 @@ export function criarCenario(scene, renderer, CONFIG) {
   const faixaLed = criarFaixaLed(scene, contorno);
   const placas = criarPlacas(scene, anisotropia);
 
-  // Traves, estrutura do gol e hastes das bandeirinhas: uma malha só, com um leve brilho de tinta
+  // Traves, estrutura do gol e hastes das bandeirinhas, com um leve brilho de tinta.
+  // O nosso gol é uma malha à parte, porque treme na bola na trave.
   const gols = criarGols(CONFIG);
   const bandeirinhas = criarBandeirinhas(scene, gols.metal);
   scene.add(new THREE.Mesh(gols.metal.criar(), new THREE.MeshPhongMaterial({
     vertexColors: true, shininess: 60, specular: 0x3a3a3a, emissive: 0x4a4d52, // emissive: continua branca de qualquer ângulo
   })));
-  const rede = montarRede(scene, gols.redes, CONFIG);
+  const uniformesFerro = {
+    treme: { value: new THREE.Vector4(0, 0, 0, 0) },
+    gol: { value: new THREE.Vector4(CONFIG.golLargura / 2, CONFIG.golAltura, CONFIG.golProfundidade, 0) },
+  };
+  const ferroPerto = new THREE.Mesh(gols.metalPerto.criar(), criarMaterialFerroPerto(uniformesFerro));
+  ferroPerto.geometry.boundingSphere.radius += 0.3; // o tremor tira o ferro um pouquinho do lugar
+  scene.add(ferroPerto);
+  const rede = montarRede(scene, CONFIG, gols.redeLa, anisotropia, uniformesFerro);
 
-  // Comemoração da torcida: sobe rápido, fica no auge um tempo e vai acalmando
-  const festa = { pico: 0, tempo: 0, nivel: 0 };
+  // Comemoração da torcida: sobe rápido, fica no auge um tempo e vai acalmando.
+  // As placas e a faixa de LED mostram "GOOOL!" só no começo, e param na hora com festa(0).
+  const festa = { pico: 0, tempo: 1e3, nivel: 0, calma: false };
   let tempo = 0;
   const torcida = {
     // intensidade de 0 a 1 (1 = gol; uns 0.3 = "uuuh" de bola na trave). 0 acalma a torcida.
     festa(intensidade = 1) {
-      if (intensidade <= 0) {
+      const valor = Number(intensidade);
+      if (!Number.isFinite(valor)) return; // número estragado (NaN): ignora, senão a festa travava
+      if (valor <= 0) {
         festa.pico = Math.min(festa.pico, festa.nivel);
         festa.tempo = 1e3;
+        festa.calma = true;
         return;
       }
-      festa.pico = Math.max(festa.nivel, intensidade);
+      festa.pico = Math.max(festa.nivel, Math.min(1, valor));
       festa.tempo = 0;
+      festa.calma = false;
     },
     get nivel() {
       return festa.nivel;
     },
+    // As placas estão mostrando "GOOOL!"?
+    get placasGol() {
+      return mostrarGol();
+    },
     atualizar(dt) {
-      const ajustes = CONFIG.cenario || {};
-      const segura = ajustes.festaSegura ?? 1.6;   // s no auge
-      const duracao = ajustes.festaDuracao ?? 3;   // s para ir acalmando depois do auge
+      const segura = Math.max(0, ajuste(CONFIG, 'festaSegura'));     // s no auge
+      const duracao = Math.max(0.1, ajuste(CONFIG, 'festaDuracao')); // s para ir acalmando depois do auge
       festa.tempo += dt;
       const alvo = festa.pico * (festa.tempo < segura ? 1 : Math.exp(-(festa.tempo - segura) / (duracao / 3)));
-      festa.nivel += (alvo - festa.nivel) * Math.min(1, dt * (alvo > festa.nivel ? 10 : 3));
+      const rapidez = alvo > festa.nivel ? 10 : festa.calma ? 5 : 3;
+      festa.nivel += (alvo - festa.nivel) * Math.min(1, dt * rapidez);
+      if (!Number.isFinite(festa.nivel)) festa.nivel = festa.pico = 0;
       if (festa.nivel < 0.002 && alvo < 0.002) festa.pico = festa.nivel = 0;
       uniformes.festa.value = festa.nivel;
     },
+  };
+  // "GOOOL!" nas placas: só em festa de gol, e sempre acaba antes da próxima cobrança (espera do gol)
+  const mostrarGol = () => {
+    const espera = Number.isFinite(CONFIG.esperaGol) ? CONFIG.esperaGol : 2.2;
+    const duracao = Math.min(ajuste(CONFIG, 'festaPlacas'), espera - 0.2);
+    return festa.pico > LIMIAR_GOL && festa.tempo < duracao;
   };
 
   return {
     rede,
     torcida,
-    // Chamar uma vez por quadro: já atualiza a rede e a torcida
+    // Bola na trave ou no travessão: o gol treme de leve (intensidade de 0 a 1), com a rede junto
+    trave(intensidade = 1) {
+      rede.tremer(intensidade);
+    },
+    // Chamar uma vez por quadro (depois de rede.bola): atualiza a rede, a torcida e as placas
     atualizar(dt) {
+      if (!(dt >= 0)) return;
       tempo = (tempo + dt) % 1000;
       uniformes.tempo.value = tempo;
       rede.atualizar(dt);
       torcida.atualizar(dt);
-      faixaLed.atualizar(dt, festa.nivel, tempo);
-      placas.atualizar(festa.nivel, tempo);
+      const gol = mostrarGol();
+      faixaLed.atualizar(dt, gol, tempo);
+      placas.atualizar(gol, tempo);
       bandeirinhas.atualizar(tempo);
     },
   };
