@@ -486,11 +486,6 @@ function tubo(lista, seg, { deformar = null, cor = null } = {}) {
 
 // Gaussiana suave (para sombreados e relevos)
 const sino = (d, s) => Math.exp(-(d * d) / (s * s));
-// Distância em u dando a volta (0 e 1 são o mesmo lugar)
-const du = (u, alvo) => {
-  const d = Math.abs(u - alvo) % 1;
-  return Math.min(d, 1 - d);
-};
 
 // ---------- Tronco (camisa) e bacia (calção) ----------
 // Tronco em V: ombros e peito largos, cintura mais fina; a barra fica solta por cima do calção.
@@ -645,9 +640,8 @@ const ANEIS_COXA = [
   [-0.425, 0.054, 0.059, 0.052],    // joelho (patela na frente)
   [-0.350, 0.065, 0.071, 0.060],
   [-0.250, 0.078, 0.085, 0.070],    // quadríceps
-  [-0.150, 0.080, 0.084, 0.076],
-  [-0.030, 0.066, 0.070, 0.068],    // dentro do calção
-  [0.000, 0, 0, 0],
+  [-0.150, 0.080, 0.084, 0.076],    // daqui para cima fica dentro do calção
+  [-0.100, 0, 0, 0],
 ];
 const ANEIS_JOELHO = [
   [-0.100, 0.051, 0.048, 0.063],
@@ -740,13 +734,15 @@ function pontoCabeca(x, y, z, folga = 0, escala = 1, mand = 0.5) {
   const kx = 1 - (0.33 - 0.12 * mand) * baixo * baixo;
   const kz = 1 - 0.1 * baixo * baixo - 0.2 * baixo * tras;
   const queixo = z > 0 ? (0.014 + 0.004 * mand) * baixo * z : 0;
+  // Topo do crânio mais cheio (redondo, sem "ponta")
+  const cima = Math.max(0, y);
+  const domo = 1 + 0.28 * cima * (1 - cima);
   return new THREE.Vector3(
-    x * (CRANIO.rx * escala * kx + folga + rel),
+    x * (CRANIO.rx * escala * kx * domo + folga + rel),
     CRANIO.y + y * (CRANIO.ry * escala + folga + rel) - (z > 0 ? 0.018 * baixo * baixo * z : 0),
-    CRANIO.z + z * (CRANIO.rz * escala * kz + folga + rel) + queixo,
+    CRANIO.z + z * (CRANIO.rz * escala * kz * (1 + 0.12 * cima * (1 - cima)) + folga + rel) + queixo,
   );
 }
-const direcao = (x, y, z) => new THREE.Vector3(x, y, z).normalize();
 // Direção na cabeça pelo ângulo em volta (az, graus; + para a esquerda do jogador) e a partir do alto (pol)
 const dirAzPol = (az, pol) => new THREE.Vector3(
   Math.sin(az * GRAUS) * Math.sin(pol * GRAUS), Math.cos(pol * GRAUS), Math.cos(az * GRAUS) * Math.sin(pol * GRAUS));
@@ -795,7 +791,7 @@ function geoCabeca(mand, barba = null) {
     cranio.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     cranio.setIndex(idx);
     // Sombra embaixo do queixo e da mandíbula
-    comCor(cranio, (x, y) => 1 - 0.28 * suave((CRANIO.y - 0.075 - y) / 0.03));
+    comCor(cranio, (x, y) => 1 - 0.22 * suave((CRANIO.y - 0.1 - y) / 0.02));
     orientar(cranio, new THREE.Vector3(0, CRANIO.y, CRANIO.z));
 
     const pescoco = uvFixo(tubo([
@@ -1013,16 +1009,16 @@ function cachosNoMapa(ponto, n, raio, { t0 = 0.15, t1 = 1, filtro = null, afunda
   return partes;
 }
 
-// Crista do moicano: faixa estreita no meio da cabeça, da testa até a nuca, mais alta na frente
+// Crista do moicano: faixa no meio da cabeça, da testa até o alto da nuca, mais alta na frente
 function crista(folga, largura = 0.3, alturaMax = 0.04) {
-  const g = new THREE.SphereGeometry(1, 18, 5, -110 * GRAUS, 158 * GRAUS, Math.PI / 2 - largura, 2 * largura);
+  const g = new THREE.SphereGeometry(1, 16, 5, -82 * GRAUS, 130 * GRAUS, Math.PI / 2 - largura, 2 * largura);
   const p = g.attributes.position;
   const uv = g.attributes.uv;
   for (let i = 0; i < p.count; i++) {
     const x = p.getY(i);
     const y = -p.getX(i);
     const z = p.getZ(i);
-    const phi = (-110 + uv.getX(i) * 158) * GRAUS;  // 0 = alto da cabeça, + = para a testa
+    const phi = (-82 + uv.getX(i) * 130) * GRAUS;   // 0 = alto da cabeça, + = para a testa
     const meio = 1 - (x / Math.sin(largura)) ** 2;   // 1 no meio da crista, 0 nas beiradas
     const h = (0.01 + alturaMax * Math.exp(-((((phi / GRAUS) - 25) / 50) ** 2))) * Math.max(0, meio) ** 0.55;
     const q = pontoCabeca(x, y, z, folga + h + 0.004 * relevo(x, y, z, 22) * meio);
@@ -1063,23 +1059,19 @@ function geoFaixa(folga) {
   return finalizar(g, new THREE.Vector3(0, CRANIO.y, CRANIO.z));
 }
 
-// Cortes de cabelo. couro: o que é pintado na pele da cabeça (raiz embaixo do cabelo, ou o próprio
-// cabelo nos cortes raspados): linha, densidade (0 a 1) e borda (graus de esfumado).
-// Cortes com variações (cabelo.corte no elenco; sem ele, escolhe pelo jeito do jogador):
+// Cortes de cabelo. couro: o cabelo raspado pintado na pele (raspado e os lados do moicano e do topete):
+// linha do cabelo (graus a partir do alto), densidade (0 a 1) e borda (graus de esfumado). Os outros cortes
+// têm casca (parametrosCabelo) e a raiz é pintada pelo mesmo mapa da casca.
+// Cortes com variações (cabelo.corte no elenco; sem ele, cada jogador ganha uma fixa):
 //   curto: 'frente' (franja para a frente) | 'lado' (risca de lado) | 'arrepiado'
 //   medio: 'franja' (anos 80, franja cheia) | 'repartido' (anos 70, risca de lado e volume nos lados)
 const CORTES = { curto: ['frente', 'lado', 'arrepiado'], medio: ['franja', 'repartido'] };
 const ESTILOS_CABELO = {
-  careca: { couro: null },
+  careca: {},
   raspado: { couro: { linha: { frente: 46, lado: 92, tras: 136 }, densidade: 0.66, borda: 3 } },
-  curto: { couro: { linha: { frente: 47, lado: 94, tras: 136 }, densidade: 0.8, borda: 4 } },
   topete: { couro: { linha: { frente: 45, lado: 92, tras: 134 }, densidade: 0.72, borda: 3 } },
   moicano: { couro: { linha: { frente: 47, lado: 90, tras: 132 }, densidade: 0.58, borda: 3 } },
-  medio: { couro: { linha: { frente: 50, lado: 100, tras: 132 }, densidade: 0.85, borda: 5 } },
-  longo: { couro: { linha: { frente: 48, lado: 100, tras: 132 }, densidade: 0.85, borda: 5 } },
-  cacheado: { couro: { linha: { frente: 45, lado: 96, tras: 128 }, densidade: 0.9, borda: 4 } },
-  cacheadoLongo: { couro: { linha: { frente: 46, lado: 100, tras: 132 }, densidade: 0.9, borda: 4 } },
-  volumoso: { couro: { linha: { frente: 48, lado: 100, tras: 132 }, densidade: 0.9, borda: 5 } },
+  curto: {}, medio: {}, longo: {}, cacheado: {}, cacheadoLongo: {}, volumoso: {},
 };
 
 // Escolhe a variação do corte: a do elenco (cabelo.corte) ou uma fixa para cada jogador
@@ -1176,7 +1168,7 @@ function parametrosCabelo(estilo, corte, comFaixa) {
           ondas: { amplitude: 0.018, frequencia: 13 }, faixa: comFaixa,
           ruido: (phi) => 3 * Math.sin(phi * 17),
         },
-        cachos: { n: 9, raio: 0.021, t0: 0.3, afundar: 0.5, filtro: comFaixa ? (phi, t) => Math.abs(t - 0.62) > 0.1 : null },
+        cachos: { n: 8, raio: 0.021, t0: 0.3, afundar: 0.5, filtro: comFaixa ? (phi, t) => Math.abs(t - 0.62) > 0.1 : null },
       };
     case 'cacheadoLongo':
       // Cachos grandes e compridos (descem pela nuca até os ombros), presos pela faixa na testa
@@ -1189,7 +1181,7 @@ function parametrosCabelo(estilo, corte, comFaixa) {
           ruido: (phi, ax, az) => Math.max(0, -az + 0.4) * 9 * Math.sin(phi * 11) + 2.5 * Math.sin(phi * 23),
           faixa: comFaixa,
         },
-        cachos: { n: 16, raio: 0.027, t0: 0.6, afundar: 0.45, filtro: (phi, t) => Math.sin(phi) < 0.35 && (!comFaixa || t > 0.62) },
+        cachos: { n: 12, raio: 0.028, t0: 0.6, afundar: 0.45, filtro: (phi, t) => Math.sin(phi) < 0.35 && (!comFaixa || t > 0.62) },
       };
     case 'volumoso':
       // Volume grande e redondo (anos 70/80), cachos que descem até a nuca
@@ -1202,7 +1194,7 @@ function parametrosCabelo(estilo, corte, comFaixa) {
           ruido: (phi) => 3 * Math.sin(phi * 15),
           faixa: comFaixa,
         },
-        cachos: { n: 8, raio: 0.026, t0: 0.65, afundar: 0.55 },
+        cachos: { n: 6, raio: 0.027, t0: 0.65, afundar: 0.55 },
       };
     default:
       return null;
@@ -1256,36 +1248,6 @@ function coberturaBarba(estilo, az, pol) {
 const ESPESSURA_BARBA = { cheia: 0.008, bigode: 0.0065, cavanhaque: 0.0065 };
 
 // ---------- Texturas (desenhadas num canvas) ----------
-
-// Fios de cabelo (cinza, multiplica a cor do cabelo): u dá a volta, v vai da raiz à ponta
-function texturaFios() {
-  return textura('fios', () => {
-    const [canvas, ctx] = novoCanvas(128, 128);
-    ctx.fillStyle = 'rgb(214,214,214)';
-    ctx.fillRect(0, 0, 128, 128);
-    let s = 1;
-    const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-    for (let k = 0; k < 260; k++) {
-      const x0 = r() * 128;
-      const tom = 120 + r() * 135;
-      ctx.strokeStyle = `rgba(${tom},${tom},${tom},0.55)`;
-      ctx.lineWidth = 0.7 + r() * 1.6;
-      ctx.beginPath();
-      const fase = r() * 6;
-      for (let y = -4; y <= 132; y += 8) {
-        const x = x0 + 2.2 * Math.sin(y * 0.07 + fase);
-        for (const dx of [-128, 0, 128]) {
-          if (y === -4) ctx.moveTo(x + dx, y);
-        }
-        ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-    const t = novaTextura(canvas, true);
-    t.repeat.set(5, 1);
-    return t;
-  });
-}
 
 // Cachos: bolinhas claras no meio e escuras na volta
 function texturaCachos() {
@@ -1399,7 +1361,7 @@ const tabCrista = () => tabelaRosto('crista', (px, py, u, azg, pol) => {
   const phi = u * Math.PI * 2;
   const sx = -Math.cos(phi) * Math.sin(th);
   const ang = Math.atan2(Math.sin(phi) * Math.sin(th), Math.cos(th)) / GRAUS; // 0 = alto, + = para a testa
-  return suave((0.36 - Math.abs(sx)) / 0.05) * suave((49 - ang) / 3) * suave((ang + 108) / 4);
+  return suave((0.36 - Math.abs(sx)) / 0.05) * suave((49 - ang) / 3) * suave((ang + 80) / 4);
 });
 
 function texturaRosto(r) {
@@ -1599,66 +1561,32 @@ const ALTURA_FAIXA = [0.205, 0.315];  // faixa do peito (São Paulo)
 const SASH = { a: [-0.175, 0.47], b: [0.17, -0.085], largura: 0.092 }; // faixa diagonal (Vasco)
 const V_PEITO = { ombro: 0.15, topo: 0.475, ponta: 0.2, largura: 0.07 };
 
-// Cor do padrão num ponto da camisa: u (volta), y (altura), x e z (posição na superfície).
-// px = tamanho do pixel em metros (para a borda das faixas sair lisa). Devolve [cor, cobertura 0 a 1].
+// Faixa diagonal e V num ponto da camisa: u (volta), y (altura), x e z (posição na superfície).
+// px = tamanho do pixel em metros (para a borda sair lisa). Devolve [cor, cobertura 0 a 1].
 function padraoNoPonto(uni, u, y, x, z, px) {
   const borda = (d) => limitar(0.5 + d / px, 0, 1); // d > 0 = dentro da faixa (m)
-  switch (uni.padrao) {
-    case 'listras': {
-      // 16 faixas na volta (8 listras), uma listra bem no meio da frente e das costas
-      const n = 16;
-      const p = (u - 0.25) * n + 0.5;
-      const f = p - Math.floor(p);
-      const listra = Math.floor(p) % 2 === 0;
-      const d = Math.min(f, 1 - f) / n; // distância até a borda, em u
-      const pxU = px / 1.0; // ~1 m de volta
-      const k = limitar(0.5 + d / pxU, 0, 1);
-      return [uni.cores[0], listra ? k : 1 - k];
-    }
-    case 'aros': {
-      const h = 0.058;
-      const p = (y + 0.1) / h;
-      const f = p - Math.floor(p);
-      const aro = Math.floor(p) % 2 === 1;
-      const d = Math.min(f, 1 - f) * h;
-      const k = borda(d);
-      return [uni.cores[0], aro ? k : 1 - k];
-    }
-    case 'faixa': {
-      const [y0, y1] = ALTURA_FAIXA;
-      const n = uni.cores.length;
-      if (y < y0 - px || y > y1 + px) return [null, 0];
-      const p = limitar((y1 - y) / ((y1 - y0) / n), 0, n - 1e-6);
-      const i = Math.floor(p);
-      const d = Math.min(y - y0, y1 - y);
-      return [uni.cores[i], borda(d)];
-    }
-    case 'diagonal': {
-      const [ax, ay] = SASH.a;
-      const [bx, by] = SASH.b;
-      const lx = bx - ax;
-      const ly = by - ay;
-      const len = Math.hypot(lx, ly);
-      const dist = Math.abs(lx * (y - ay) - ly * (x - ax)) / len;
-      return [uni.cores[0], borda(SASH.largura / 2 - dist)];
-    }
-    case 'v': {
-      const { ombro, topo, ponta, largura } = V_PEITO;
-      let melhor = Infinity;
-      for (const s of [-1, 1]) {
-        // Segmento do ombro até a ponta do V (na frente e atrás, pelo x e y)
-        const ax = s * ombro;
-        const lx = -ax;
-        const ly = ponta - topo;
-        const len2 = lx * lx + ly * ly;
-        const t = limitar(((x - ax) * lx + (y - topo) * ly) / len2, 0, 1);
-        melhor = Math.min(melhor, Math.hypot(x - (ax + lx * t), y - (topo + ly * t)));
-      }
-      return [uni.cores[0], borda(largura / 2 - melhor)];
-    }
-    default:
-      return [null, 0];
+  if (uni.padrao === 'diagonal') {
+    const [ax, ay] = SASH.a;
+    const [bx, by] = SASH.b;
+    const lx = bx - ax;
+    const ly = by - ay;
+    const dist = Math.abs(lx * (y - ay) - ly * (x - ax)) / Math.hypot(lx, ly);
+    return [uni.cores[0], borda(SASH.largura / 2 - dist)];
   }
+  if (uni.padrao === 'v') {
+    const { ombro, topo, ponta, largura } = V_PEITO;
+    let melhor = Infinity;
+    for (const s of [-1, 1]) {
+      // Segmento do ombro até a ponta do V (vale na frente e atrás: só depende de x e y)
+      const ax = s * ombro;
+      const lx = -ax;
+      const ly = ponta - topo;
+      const t = limitar(((x - ax) * lx + (y - topo) * ly) / (lx * lx + ly * ly), 0, 1);
+      melhor = Math.min(melhor, Math.hypot(x - (ax + lx * t), y - (topo + ly * t)));
+    }
+    return [uni.cores[0], borda(largura / 2 - melhor)];
+  }
+  return [null, 0];
 }
 
 // Cores que aparecem atrás de um ponto da camisa (para decidir o contorno do número)
@@ -1847,7 +1775,7 @@ function texturaCamisa(uni, numero, nome) {
 
   // Gola: faixa em cima e um V cheio na frente; uma linha clara/escura embaixo se ela some no padrão
   const yGola = (1 - v(0.462)) * H;
-  const yV = (1 - v(0.4)) * H;
+  const yV = (1 - v(0.41)) * H;
   const fundosGola = [uni.camisa, ...(uni.padrao === 'liso' ? [] : uni.cores)];
   const golaSome = Math.min(...fundosGola.map((f) => contraste(uni.gola, f))) < 1.5;
   const caminhoGola = (folga) => {
@@ -1855,9 +1783,9 @@ function texturaCamisa(uni, numero, nome) {
     ctx.moveTo(0, 0);
     ctx.lineTo(W, 0);
     ctx.lineTo(W, yGola + folga);
-    ctx.lineTo(128 + 22 + folga, yGola + folga);
+    ctx.lineTo(128 + 18 + folga, yGola + folga);
     ctx.lineTo(128, yV + folga * 1.6);
-    ctx.lineTo(128 - 22 - folga, yGola + folga);
+    ctx.lineTo(128 - 18 - folga, yGola + folga);
     ctx.lineTo(0, yGola + folga);
     ctx.closePath();
   };
@@ -2090,7 +2018,7 @@ function estiloEfetivo(v) {
 
 // Material do rosto (textura pintada) para uma aparência. Devolve { frente, duplo }: o mesmo desenho
 // para a cabeça e a barba (frente) e para as cascas do cabelo (duplo: pinta os dois lados).
-function matRosto(v, estilo, corte, comFaixa, mand) {
+function matRosto(v, estilo, corte, comFaixa) {
   const corCabelo = v.cabelo.cor || '#2a1d14';
   const corBarba = v.corBarba || corCabelo;
   const loiro = luminancia(corCabelo) > 0.25;
@@ -2099,7 +2027,7 @@ function matRosto(v, estilo, corte, comFaixa, mand) {
     : corMisturada(corCabelo, '#24180f', loiro ? 0.45 : 0.15));
   const barba = v.barba && v.barba !== 'nenhuma' ? v.barba : null;
   const info = ESTILOS_CABELO[estilo];
-  const raspado = ['raspado', 'moicano', 'topete'].includes(estilo) && info.couro ? info.couro : null;
+  const raspado = info && info.couro ? info.couro : null;
   const p = parametrosCabelo(estilo, corte, comFaixa);
   const r = {
     pele: v.pele, cabelo: corCabelo, corRaspado: corMisturada(corCabelo, '#16100c', 0.25),
@@ -2109,14 +2037,50 @@ function matRosto(v, estilo, corte, comFaixa, mand) {
     crista: estilo === 'moicano', fios: p ? p.fios : 'fios',
   };
   const chave = `rosto:${JSON.stringify(r)}:${estilo}:${corte}:${comFaixa ? 1 : 0}`;
-  const opcoes = { brilho: 14, corSemDocumento: v.pele };
-  return {
-    frente: matTextura(chave, () => texturaRosto(r), opcoes),
-    duplo: matTextura(chave, () => texturaRosto(r), { ...opcoes, duplo: true }),
-  };
+  return pegarRosto(chave, r, v.pele);
+}
+
+// Rostos em uso (como as camisas): cada um tem textura própria; os que ficam sem uso esperam um pouco
+// (até GUARDAR_ROSTOS) antes de sair da memória do celular
+const GUARDAR_ROSTOS = 8;
+const rostos = new Map();
+const rostosGuardados = [];
+function pegarRosto(chave, r, corPele) {
+  let item = rostos.get(chave);
+  if (!item) {
+    const mapa = temDocumento ? texturaRosto(r) : null;
+    const criar = (duplo) => new THREE.MeshPhongMaterial({
+      color: new THREE.Color(mapa ? '#ffffff' : corPele), map: mapa, vertexColors: true, shininess: 14,
+      specular: new THREE.Color(0x1c1c1c), side: duplo ? THREE.DoubleSide : THREE.FrontSide,
+    });
+    item = { chave, mapa, frente: criar(false), duplo: criar(true), usos: 0 };
+    rostos.set(chave, item);
+  }
+  const i = rostosGuardados.indexOf(item);
+  if (i >= 0) rostosGuardados.splice(i, 1);
+  item.usos++;
+  return item;
+}
+function soltarRosto(item) {
+  item.usos--;
+  if (item.usos > 0 || rostos.get(item.chave) !== item) return;
+  rostosGuardados.push(item);
+  while (rostosGuardados.length > GUARDAR_ROSTOS) {
+    const velho = rostosGuardados.shift();
+    if (velho.mapa) velho.mapa.dispose();
+    velho.frente.dispose();
+    velho.duplo.dispose();
+    rostos.delete(velho.chave);
+  }
 }
 
 // Cria um boneco. visual: a aparência (veja js/elenco.js). uniforme: o do elenco ou um dos UNIFORMES.
+// Campos opcionais do visual, além dos do elenco:
+//   cabelo.corte: variação do corte ('curto': 'frente' | 'lado' | 'arrepiado'; 'medio': 'franja' | 'repartido');
+//                 sem ele, cada jogador ganha uma variação fixa
+//   cabelo.comprimento: 'longo' | 'curto' (no 'cacheado'; cacheado com faixa já vira o comprido do Bruxo)
+//   cabelo.estilo também aceita 'cacheadoLongo' (cachos até a nuca e os ombros)
+//   olhos: cor da íris (padrão castanho-escuro); sobrancelha: cor das sobrancelhas
 // Devolve { grupo, aplicarPose(pose), altura, alturaQuadril, juntas, pontoNoGrupo, alcancar, dispose() }.
 export function criarPersonagem({ visual = {}, uniforme, numero, nome } = {}) {
   const v = { ...VISUAL_PADRAO, ...visual, cabelo: { ...VISUAL_PADRAO.cabelo, ...(visual.cabelo || {}) } };
@@ -2214,7 +2178,7 @@ export function criarPersonagem({ visual = {}, uniforme, numero, nome } = {}) {
   const estilo = estiloEfetivo(v);
   const corte = corteDoCabelo({ ...v, cabelo: { ...v.cabelo, estilo } });
   const comFaixa = !!v.faixa && estilo !== 'careca' && estilo !== 'raspado';
-  const rosto = matRosto(v, estilo, corte, comFaixa, mand);
+  const rosto = matRosto(v, estilo, corte, comFaixa);
   malha(cabeca, geoCabeca(mand, v.barba), rosto.frente, 'cabeca');
   const corCabelo = v.cabelo.cor || '#2a1d14';
   for (const parte of geoCabelo(estilo, corte, comFaixa)) {
@@ -2380,6 +2344,7 @@ export function criarPersonagem({ visual = {}, uniforme, numero, nome } = {}) {
       if (descartado) return;
       descartado = true;
       soltarCamisa(camisa);
+      soltarRosto(rosto);
     },
   };
 }
@@ -2706,7 +2671,12 @@ export function poseLamento(t = 0) {
 export function estatisticasCache() {
   let usadas = 0;
   for (const item of camisas.values()) if (item.usos > 0) usadas++;
-  return { geometrias: cacheGeo.size, materiais: cacheMat.size, texturas: cacheTex.size, camisas: camisas.size, camisasEmUso: usadas, camisasGuardadas: guardadas.length };
+  let rostosEmUso = 0;
+  for (const item of rostos.values()) if (item.usos > 0) rostosEmUso++;
+  return {
+    geometrias: cacheGeo.size, materiais: cacheMat.size, texturas: cacheTex.size, camisas: camisas.size,
+    camisasEmUso: usadas, camisasGuardadas: guardadas.length, rostos: rostos.size, rostosEmUso, rostosGuardados: rostosGuardados.length,
+  };
 }
 
 // ---------- Sombra ----------
@@ -2751,7 +2721,7 @@ const ROSTOS_ADVERSARIOS = [
   { pele: '#e6b892', cabelo: { estilo: 'curto', cor: '#2b1d14' }, barba: 'nenhuma', chuteira: '#111111' },
   { pele: '#86522f', cabelo: { estilo: 'raspado', cor: '#151010' }, barba: 'rala', corBarba: '#151010', chuteira: '#f5f5f5' },
   { pele: '#f1cfb0', cabelo: { estilo: 'curto', cor: '#b8894e' }, barba: 'nenhuma', chuteira: '#1e5bd8' },
-  { pele: '#c68e62', cabelo: { estilo: 'medio', cor: '#1c1410' }, barba: 'cavanhaque', corBarba: '#1c1410', chuteira: '#111111' },
+  { pele: '#c68e62', cabelo: { estilo: 'curto', cor: '#1c1410', corte: 'arrepiado' }, barba: 'cavanhaque', corBarba: '#1c1410', chuteira: '#111111' },
   { pele: '#6b4026', cabelo: { estilo: 'careca', cor: '#111111' }, barba: 'cheia', corBarba: '#151010', chuteira: '#e8e8e8' },
   { pele: '#efc6a2', cabelo: { estilo: 'topete', cor: '#6b4a2b' }, barba: 'rala', corBarba: '#5a3c22', chuteira: '#111111' },
   { pele: '#d9a57a', cabelo: { estilo: 'cacheado', cor: '#24170f' }, barba: 'nenhuma', chuteira: '#ff6a00' },

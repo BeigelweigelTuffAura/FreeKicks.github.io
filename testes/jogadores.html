@@ -24,9 +24,10 @@
     Teste visual dos bonecos (js/jogadores.js). Para abrir:
       python3 -m http.server 8000   (na pasta do projeto)   e   http://localhost:8000/testes/jogadores.html
     Opções no endereço:
-      ?so=ID         mostra só uma seção (frente1, frente2, costas1, costas2, rostos, cobrador, barreira, goleiro,
-                     chute-lado, chute-tras, chute-canhoto, poses, poses-perto, jogo-tras, jogo-aerea,
-                     sequencia, goleiro-real)
+      ?so=ID         mostra só uma seção (frente1, frente2, costas1, costas2, retrato, nomes, camisas, rostos,
+                     cobrador, barreira, goleiro, chute-lado, chute-tras, chute-canhoto, poses, poses-perto,
+                     jogo-tras, jogo-aerea, sequencia, goleiro-real)
+      ?quem=A,B,...  quem aparece no retrato (apelidos);  ?zoom (rosto), ?corpo, ?pes, ?maos  enquadramento
       ?fila=1        rostos dos reservas;  ?nuca / ?perfil  gira os rostos
       ?cobrador=Nome quem bate em jogo-tras, jogo-aerea e sequencia (ex.: Pibe);  ?t=s  instante da cobrança
       ?caso=0|1|2    chute no goleiro-real (alto à direita, rasteiro à esquerda, no meio);  ?maos  mostra as mãos da colisão
@@ -783,15 +784,33 @@
       p.dispose();
       return { barreira_difAlturaCabeca_cm: +(difCabeca * 100).toFixed(1), barreira_peAbaixoDoChao_cm: +(peAbaixo * 100).toFixed(1) };
     }
-    // dispose(): criar e soltar muitos bonecos não pode acumular camisas no cache
+    // dispose(): criar e soltar muitos bonecos não pode acumular camisas no cache (até 10 sem uso ficam
+    // guardadas para a barreira da próxima falta), e chamar dispose() duas vezes não pode soltar de novo
+    // a camisa que outro boneco ainda usa
     function verificarDispose() {
       const antes = estatisticasCache();
       for (let i = 0; i < 40; i++) {
         const j = ELENCO[i % ELENCO.length];
-        criarPersonagem({ visual: j.visual, uniforme: UNIFORMES.lendas, numero: 100 + i, nome: 'X' + i }).dispose();
+        criarPersonagem({ visual: j.visual, uniforme: uniformeDaLenda(j), numero: 100 + i, nome: 'X' + i }).dispose();
       }
       const depois = estatisticasCache();
-      return { dispose_camisasAntes: antes.camisas, dispose_camisasDepois: depois.camisas, geometrias: depois.geometrias, materiais: depois.materiais };
+      const j = ELENCO[0];
+      const a = criarPersonagem({ visual: j.visual, uniforme: uniformeDaLenda(j), numero: 77, nome: 'DUPLO' });
+      const b = criarPersonagem({ visual: j.visual, uniforme: uniformeDaLenda(j), numero: 77, nome: 'DUPLO' });
+      const emUso = estatisticasCache().camisasEmUso;
+      a.dispose();
+      a.dispose();
+      const duploOk = estatisticasCache().camisasEmUso === emUso && b.grupo.getObjectByName('camisa').material === a.grupo.getObjectByName('camisa').material;
+      b.dispose();
+      const fim = estatisticasCache();
+      return {
+        dispose_emUsoAntes: antes.camisasEmUso, dispose_emUsoDepois: depois.camisasEmUso,
+        dispose_guardadas: depois.camisasGuardadas,
+        dispose_ok: depois.camisasEmUso === antes.camisasEmUso && depois.camisas <= antes.camisas + 10
+          && depois.rostosEmUso === antes.rostosEmUso && depois.rostos <= antes.rostos + 8,
+        disposeDuplo_ok: duploOk && fim.camisasEmUso === antes.camisasEmUso && fim.rostosEmUso === antes.rostosEmUso,
+        geometrias: fim.geometrias, materiais: fim.materiais, texturas: fim.texturas,
+      };
     }
     checagens.push(verificarBarreira(), verificarDispose());
 
@@ -808,7 +827,7 @@
       return { malhas, tri: Math.round(tri) };
     }
     const contas = ELENCO.map((j) => {
-      const p = criarPersonagem({ visual: j.visual, uniforme: UNIFORMES.lendas, numero: j.numero, nome: j.apelido });
+      const p = criarPersonagem({ visual: j.visual, uniforme: uniformeDaLenda(j), numero: j.numero, nome: nomeCurto(j) });
       const c = contar(p.grupo);
       p.dispose();
       return `${j.apelido.padEnd(13)} malhas ${String(c.malhas).padStart(2)}  triângulos ${c.tri}`;

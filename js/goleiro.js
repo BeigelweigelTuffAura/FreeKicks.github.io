@@ -103,7 +103,7 @@ const PULINHO_DURACAO = 0.13;   // s no ar do passinho (cai na base bem na hora 
 
 // Leitura e decisão
 const PLANO_MAOS = 0.2;         // m: as mãos pegam a bola um pouco à frente do corpo
-const ALTURA_SEM_PULO = 1.75;  // m: bola perto do corpo até essa altura ele pega de pé; mais alta, estica e pula
+const ALTURA_SEM_PULO = 1.75;   // m: bola perto do corpo até essa altura ele pega de pé; mais alta, estica e pula
 const ENGANO_PERTO = 0.15;      // quanto da curva engana quando a bola vem nele (longe dele, engana por inteiro)
 const LONGE_CURVA = 2.5;        // m: com a bola chegando a essa distância dele (ou mais), a curva engana por inteiro
 const MARGEM_GOL = 0.35;        // m: lendo a bola até isso fora do gol, ele ainda vai nela
@@ -276,8 +276,8 @@ function passaPelaBarreira(bola, b, fis) {
 // só ajeitar as mãos) e some quando a bola chega perto (já não falta curva para fazer).
 // Em cima disso vem um erro gaussiano (o mesmo sorteio em todas as releituras), proporcional à
 // distância que a bola ainda vai andar (perto é mais fácil de ler; e a bola rápida chega de mais
-// longe no mesmo tempo, então é mais difícil). Ele cresce com a bola sem rotação e com a curva que
-// leva a bola para longe dele.
+// longe no mesmo tempo, então é mais difícil). Ele é a metade com a bola vindo nele, e cresce com a
+// bola que vai longe dele, com a bola sem rotação e com a curva que leva a bola para longe dele.
 function lerBola(g, bola, c, fis) {
   // (onde a bola passa na frente dele, onde as mãos vão pegar)
   const plano = g.z + PLANO_MAOS;
@@ -297,8 +297,8 @@ function lerBola(g, bola, c, fis) {
   const danca = bola.danca ? bola.danca.intensidade || 0 : 0;
   const falta = Math.hypot(real.x - bola.pos.x, real.y - bola.pos.y, plano - bola.pos.z);
   const perto = limitar(falta / Math.max(0.5, c.distanciaLeitura), 0.2, 1.6);
-  // (bola vindo nele quase não anda de lado: é fácil de ler; quanto mais longe dele ela vai, mais difícil
-  // julgar o quanto ela ainda anda)
+  // (bola vindo nele quase não anda de lado no olho dele: é fácil de ler; quanto mais longe dele ela
+  // vai, mais difícil julgar o quanto ela ainda anda)
   const lado = 0.5 + 0.5 * longe;
   const sigma = c.erroLeitura * perto * (lado + c.pesoCurva * Math.min(curva, 1.5) * longe + c.pesoSemRotacao * danca);
   g.leitura = {
@@ -379,8 +379,9 @@ function rolagemPara(D, deslocamentoLateral) {
 }
 
 // Para onde o centro do corpo precisa ir para as mãos chegarem no alvo.
-// Bola perto do corpo: ele põe o corpo atrás dela (pula se for alta, agacha se for baixa).
-// Bola longe: mergulha até as mãos alcançarem, com o corpo esticado na direção dela.
+// Bola perto do corpo, até a altura da cabeça: ele põe o corpo atrás dela, de pé (agacha se for baixa).
+// Bola longe (ou alta): estica o corpo na direção dela até as mãos alcançarem; de lado é o mergulho,
+// para cima é o pulo. Devolve também o modo: 'voo' (sai do chão) ou 'apoio' (com os pés no chão).
 function planejar(g, alvo, c, meiaAltura) {
   const C0 = { x: g.cx, y: g.cy };
   // Não adianta ir além da trave: a bola que passa dali já está fora

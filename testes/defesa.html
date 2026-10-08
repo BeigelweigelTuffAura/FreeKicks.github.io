@@ -137,7 +137,9 @@
     scene.add(goleiroBoneco.grupo);
     const sombraGoleiro = P.criarSombraBlob(0.45);
     scene.add(sombraGoleiro);
-    const animGoleiro = criarAnimadorGoleiro(goleiroBoneco);
+    // ?diag=0: como no jogo (sem as medidas internas); ?sg=N: semente dos gestos (padrão fixo, para repetir igual)
+    const diag = params.get('diag') !== '0';
+    const animGoleiro = criarAnimadorGoleiro(goleiroBoneco, { diagnostico: diag, semente: Number(params.get('sg') ?? 0.37) });
     const cobrador = P.criarPersonagem({ visual: { cabelo: { estilo: 'curto', cor: '#2a1d14' } }, uniforme: P.UNIFORMES.lendas, numero: 10, nome: 'TESTE' });
     scene.add(cobrador.grupo);
     const sombraCobrador = P.criarSombraBlob(0.4);
@@ -202,7 +204,7 @@
         scene.add(personagem.grupo, sombra);
         return { personagem, sombra };
       });
-      animBarreira = criarAnimadorBarreira(bonecosBarreira.map((b) => b.personagem), { semente: cen.semente / 100 });
+      animBarreira = criarAnimadorBarreira(bonecosBarreira.map((b) => b.personagem), { semente: cen.semente / 100, diagnostico: diag });
       animGoleiro.reiniciar();
       cob = P.criarCobranca(cobrador, { bola: { x: bola.pos.x, z: bola.pos.z }, alvo: { x: 0, z: 0 }, pe: 'D', cfg: CONFIG });
       fase = 'pronto';
@@ -243,7 +245,7 @@
 
     // Um quadro de 1/60 s (com câmera lenta perto do gol, como no jogo)
     function passoQuadro() {
-      const dtReal = 1 / 60;
+      const dtReal = window.dtReal ?? 1 / 60; // os testes podem trocar o passo (ex.: 1/30, 1/240)
       if (fase === 'voo' && !lenta.usada && params.get('lenta') !== '0') {
         const { pos, vel } = bola;
         if (vel.z < -8 && pos.z > 0 && pos.z < 3.5 && Math.abs(pos.x) < 4.3 && pos.y < 3) {
@@ -306,6 +308,7 @@
       medidas.msAnimacao += performance.now() - t0;
       medidas.quadros++;
       medir(sg);
+      if (window.hook) window.hook(dt); // gancho dos testes automáticos (medidas por quadro)
       return dt;
     }
 
@@ -534,6 +537,14 @@
       }
       return linhas.join('\n');
     }
+    // Acesso direto ao estado, para os testes medirem pela malha
+    window.dbg = {
+      get goleiro() { return goleiro; }, get barreira() { return barreira; }, get bola() { return bola; },
+      goleiroBoneco, get bonecosBarreira() { return bonecosBarreira; }, animGoleiro, get animBarreira() { return animBarreira; },
+      get fase() { return fase; }, get tChute() { return tChute; }, get tJogo() { return tJogo; }, get eventos() { return eventos; },
+      get resultado() { return resultado; }, passoQuadro, desenharQuadro, CENARIOS, THREE, camera, renderer, scene, cobrador,
+      get medidas() { return medidas; }, posicionarCamera,
+    };
     window.teste = {
       montar, avancarAte, grade, rodar, resumo, texto, trilha,
       cenarios: Object.keys(CENARIOS),
