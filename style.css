@@ -49,9 +49,14 @@ body {
 }
 
 #titulo {
-  font-weight: 800;
+  font-weight: 900;
   letter-spacing: 0.08em;
   font-size: 14px;
+  font-style: italic;
+}
+
+#titulo span {
+  color: #f7d84a;
 }
 
 #topo-direita {
@@ -65,7 +70,7 @@ body {
   opacity: 0.75;
 }
 
-#botao-ajustes {
+.botao-redondo {
   pointer-events: auto;
   width: 34px;
   height: 34px;
@@ -77,17 +82,128 @@ body {
   line-height: 1;
 }
 
+/* Linha de cima: cartão do cobrador à esquerda, falta e placar à direita */
+#linha-info {
+  width: 100%;
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  transition: opacity 0.25s;
+}
+
+#info-direita {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  text-align: right;
+}
+
 #info {
-  margin-top: 6px;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 #placar {
-  margin-top: 2px;
-  min-height: 18px;
-  font-size: 13px;
+  min-height: 16px;
+  font-size: 12px;
   font-weight: 700;
   opacity: 0.9;
+}
+
+#botao-fixar {
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 14px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#botao-fixar.ativo {
+  background: #f7d84a;
+  color: #1b2a12;
+  border-color: #f7d84a;
+}
+
+/* Cartão do cobrador (toque para trocar) */
+#cartao-cobrador {
+  pointer-events: auto;
+  max-width: 62%;
+  min-width: 190px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  padding: 7px 10px 6px;
+  background: linear-gradient(135deg, rgba(20, 12, 12, 0.82), rgba(70, 12, 18, 0.78));
+  color: #fff;
+  text-align: left;
+  text-shadow: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.cartao-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cartao-numero {
+  min-width: 34px;
+  font-size: 26px;
+  font-weight: 900;
+  font-style: italic;
+  color: #f7d84a;
+  line-height: 1;
+}
+
+.cartao-nome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  overflow: hidden;
+}
+
+.cartao-nome b {
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.cartao-nome small,
+.cartao-ovr small {
+  font-size: 10px;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.cartao-ovr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.cartao-ovr b {
+  font-size: 20px;
+}
+
+.cartao-nota {
+  margin-top: 5px;
+  font-size: 11px;
+  opacity: 0.95;
+}
+
+.cartao-nota b {
+  color: #4ade80;
+}
+
+.cartao-nota u {
+  color: #f7d84a;
+  text-decoration: none;
+  font-weight: 800;
 }
 
 #mensagem {
@@ -115,6 +231,21 @@ body {
   background: rgba(0, 0, 0, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.8);
   overflow: hidden;
+}
+
+#barra {
+  position: relative;
+}
+
+/* Marca do ponto ideal de força: passar dela aumenta o erro */
+#barra-ideal {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 3px;
+  margin-left: -1px;
+  background: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
 }
 
 #barra-preenchida {
@@ -375,4 +506,193 @@ body {
     bottom: calc(env(safe-area-inset-bottom) + 16px);
     width: 380px;
   }
+}
+
+/* Durante o voo, o topo também some um pouco */
+#hud.em-jogo #linha-info {
+  opacity: 0.35;
+}
+
+/* Lista "Quem bate?" */
+#lista-cobradores {
+  pointer-events: auto;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  text-shadow: none;
+}
+
+#lista-cobradores[hidden] {
+  display: none;
+}
+
+#lista-cobradores .folha {
+  touch-action: pan-y;
+  width: 100%;
+  max-width: 520px;
+  max-height: 82vh;
+  overflow-y: auto;
+  padding: 14px 12px calc(env(safe-area-inset-bottom) + 14px);
+  border-radius: 18px 18px 0 0;
+  background: #101814;
+}
+
+.folha-cabecalho {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 18px;
+}
+
+.folha-cabecalho button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-weight: 700;
+  background: #f7d84a;
+  color: #1b2a12;
+}
+
+.folha-explica {
+  margin: 6px 2px 10px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.item-cobrador {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  text-align: left;
+}
+
+.item-cobrador.escolhido {
+  border-color: #f7d84a;
+  background: rgba(247, 216, 74, 0.12);
+}
+
+.item-numero {
+  min-width: 34px;
+  font-size: 22px;
+  font-weight: 900;
+  font-style: italic;
+  color: #f7d84a;
+  text-align: center;
+}
+
+.item-meio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.item-meio b {
+  font-size: 15px;
+}
+
+.item-meio small {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.item-notas {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.05;
+}
+
+.item-notas b {
+  font-size: 24px;
+}
+
+.item-notas small,
+.item-notas em {
+  font-size: 10px;
+  font-style: normal;
+  opacity: 0.75;
+}
+
+.item-selos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.selo {
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.selo.especial {
+  background: rgba(247, 216, 74, 0.25);
+  color: #ffe58a;
+}
+
+.selo.sugerido {
+  background: #4ade80;
+  color: #0b2414;
+}
+
+.atributos {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.atributo {
+  display: grid;
+  grid-template-columns: auto;
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.atributo span {
+  opacity: 0.7;
+}
+
+.atributo i {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.atributo i b {
+  display: block;
+  height: 100%;
+}
+
+.atributo em {
+  font-style: normal;
+  font-weight: 800;
+  font-size: 11px;
+}
+
+/* Resultado de defesa e barreira em azul-claro */
+#resultado.defesa #resultado-titulo {
+  color: #7dd3fc;
+}
+
+/* Elementos que só aparecem quando o código novo os preenche */
+#cartao-cobrador:empty,
+#botao-fixar[hidden],
+#botao-mudo[hidden] {
+  display: none;
 }

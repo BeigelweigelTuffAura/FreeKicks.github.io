@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0d2b16">
   <title>Free Kick Legends</title>
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
   <!-- Three.js (biblioteca de 3D) em versão fixa, carregada de um CDN -->
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
@@ -16,14 +16,22 @@
 
   <div id="hud">
     <div id="topo">
-      <div id="titulo">FREE KICK LEGENDS</div>
+      <div id="titulo">FREE KICK <span>LEGENDS</span></div>
       <div id="topo-direita">
         <span id="versao"></span>
-        <button id="botao-ajustes" type="button" aria-label="Painel de ajuste">⚙</button>
+        <button id="botao-mudo" class="botao-redondo" type="button" aria-label="Desligar som" hidden>🔊</button>
+        <button id="botao-ajustes" class="botao-redondo" type="button" aria-label="Painel de ajuste">⚙</button>
       </div>
     </div>
-    <div id="info"></div>
-    <div id="placar"></div>
+
+    <div id="linha-info">
+      <button id="cartao-cobrador" type="button" aria-label="Trocar cobrador"></button>
+      <div id="info-direita">
+        <div id="info"></div>
+        <div id="placar"></div>
+        <button id="botao-fixar" type="button" hidden>🎲 Falta sorteada</button>
+      </div>
+    </div>
     <div id="mensagem"></div>
 
     <div id="resultado">
@@ -32,7 +40,7 @@
     </div>
 
     <div id="controles">
-      <div id="barra"><div id="barra-preenchida"></div></div>
+      <div id="barra"><div id="barra-preenchida"></div><div id="barra-ideal"></div></div>
       <div id="linha-chute">
         <div id="contato">
           <div id="contato-bola"><div id="contato-ponto"></div></div>
@@ -41,6 +49,17 @@
         <button id="botao-chute" type="button">CHUTAR</button>
       </div>
       <div id="dica">Toque na bola para escolher onde o pé pega. Segure CHUTAR e solte.</div>
+    </div>
+
+    <div id="lista-cobradores" hidden>
+      <div class="folha">
+        <div class="folha-cabecalho">
+          <b>Quem bate?</b>
+          <button id="lista-fechar" type="button">Fechar</button>
+        </div>
+        <p class="folha-explica">Ordenados pela nota para ESTA falta: distância, lado do campo, pé bom e estilo de cada um. O overall é só referência.</p>
+        <div id="lista-itens"></div>
+      </div>
     </div>
 
     <div id="painel" hidden>
@@ -58,6 +77,6 @@
   </div>
 
   <noscript>Este jogo precisa de JavaScript ligado.</noscript>
-  <script type="module" src="js/main.js?v=3"></script>
+  <script type="module" src="js/main.js?v=4"></script>
 </body>
 </html>
