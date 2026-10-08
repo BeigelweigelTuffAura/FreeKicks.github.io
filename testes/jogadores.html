@@ -181,7 +181,7 @@
 
     // Retratos grandes: cada quadro é uma câmera perto de um boneco (frente, 3/4, perfil e costas).
     // ?quem=apelidos separados por vírgula;  ?corpo mostra o corpo inteiro em vez do busto
-    secao('retrato', 'Retratos (frente, 3/4, perfil e costas)', '?quem=apelidos separados por vírgula; ?corpo = corpo inteiro.', 760, (ctx) => {
+    secao('retrato', 'Retratos (frente, 3/4, perfil e costas)', '?quem=apelidos separados por vírgula; ?corpo = corpo inteiro; ?zoom = rosto; ?pes e ?maos = de perto.', 760, (ctx) => {
       const nomes = (params.get('quem') || 'Bruxo,Kaiser,Galinho,Pinturicchio,Rei da Falta').split(',');
       const corpoTodo = params.has('corpo');
       const bonecos = nomes.map((n) => {
@@ -204,8 +204,13 @@
           giros.forEach((g, k) => {
             p.grupo.rotation.y = g;
             const yOlho = p.altura - 0.12;
-            ctx.camera.fov = corpoTodo ? 14 : 20;
-            if (corpoTodo) {
+            ctx.camera.fov = corpoTodo ? 14 : (params.has('zoom') ? 11 : 20);
+            if (params.has('pes') || params.has('maos')) {
+              const y = params.has('pes') ? 0.12 : p.alturaQuadril * 0.92;
+              ctx.camera.fov = 9;
+              ctx.camera.position.set(0, y + 0.25, 2.6);
+              ctx.camera.lookAt(0, y, 0);
+            } else if (corpoTodo) {
               ctx.camera.position.set(0, p.altura * 0.55, 5.2);
               ctx.camera.lookAt(0, p.altura * 0.42, 0);
             } else {
@@ -221,6 +226,49 @@
           });
           p.grupo.visible = false;
           ctx.rotulo(j.apelido, null, { x: 8 - 30, y: i * H + 6 });
+        });
+        r.setScissorTest(false);
+        ctx.desenhado = true;
+      };
+    });
+
+    // Nomes e números nas costas de todos (câmera de trás, a ~3,5 m, como a da cobrança)
+    secao('nomes', 'Costas de perto (nome e número)', 'Os 22 do elenco, o adversário e os uniformes antigos (UNIFORMES) vistos de trás.', 720, (ctx) => {
+      const lista = [
+        ...ELENCO.map((j) => [j.apelido, () => boneco(j)]),
+        ['Adversário', () => bonecoAdversario()],
+        ['goleiro antigo', () => { const p = criarPersonagem({ visual: acha('Mito').visual, uniforme: UNIFORMES.goleiroLendas, numero: 1, nome: 'SENI' }); todos.push(p); return p; }],
+        ['lendas antigo', () => { const p = criarPersonagem({ visual: acha('Pulga').visual, uniforme: UNIFORMES.lendas, numero: 30, nome: 'MESI' }); todos.push(p); return p; }],
+      ];
+      const bonecos = lista.map(([n, criar]) => {
+        const p = criar();
+        p.aplicarPose(posePadrao(0));
+        p.grupo.rotation.y = Math.PI;
+        p.grupo.visible = false;
+        ctx.scene.add(p.grupo);
+        return { n, p };
+      });
+      const colunas = 7;
+      return () => {
+        const r = ctx.renderer;
+        const linhas = Math.ceil(bonecos.length / colunas);
+        const W = largura / colunas;
+        const H = 720 / linhas;
+        r.setScissorTest(true);
+        ctx.camera.aspect = W / H;
+        bonecos.forEach(({ n, p }, i) => {
+          p.grupo.visible = true;
+          ctx.camera.fov = 15;
+          ctx.camera.position.set(0.35, 1.85, 3.6);
+          ctx.camera.lookAt(0, p.altura * 0.7, 0);
+          ctx.camera.updateProjectionMatrix();
+          const x = (i % colunas) * W;
+          const y = (linhas - 1 - Math.floor(i / colunas)) * H;
+          r.setViewport(x, y, W, H);
+          r.setScissor(x, y, W, H);
+          r.render(ctx.scene, ctx.camera);
+          p.grupo.visible = false;
+          ctx.rotulo(n, null, { x: x + 4 - 30, y: Math.floor(i / colunas) * H + 4 });
         });
         r.setScissorTest(false);
         ctx.desenhado = true;

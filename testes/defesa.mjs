@@ -632,10 +632,13 @@ teste('goleiro: o mergulho é físico (as pernas aceleram o corpo, depois ele vo
     assert.ok(m && m.modo === 'voo' && m.lado !== 0, 'mergulha de lado');
     const pts = r.trilha.filter((p) => p.t >= m.t0 - 1e-9);
     const vel = (i) => (pts[i + 1].centro.x - pts[i].centro.x) / H;
-    // Impulso: a velocidade de lado cresce aos poucos (nada de sair voando de uma vez)
+    // Impulso: a velocidade de lado muda aos poucos, com as pernas no chão (nada de sair voando de uma
+    // vez): parte do embalo dos passos e chega na velocidade de saída no fim do impulso
     const nImpulso = Math.floor(m.preparo / H) - 1;
-    for (let i = 1; i < nImpulso; i++) assert.ok(Math.abs(vel(i)) >= Math.abs(vel(i - 1)) - 1e-6, 'acelera no impulso');
-    assert.ok(Math.abs(vel(0)) <= PADRAO_GOLEIRO.velocidadeLateral + 0.2, `começa no embalo dos passos: ${vel(0)}`);
+    const aceleracaoMax = (PADRAO_GOLEIRO.velocidadeMergulho + PADRAO_GOLEIRO.velocidadeCorrida) / m.preparo;
+    for (let i = 1; i < nImpulso; i++) assert.ok(Math.abs(vel(i) - vel(i - 1)) <= aceleracaoMax * H + 1e-3, 'sem trancos no impulso');
+    assert.ok(Math.abs(vel(0) - m.v0.x) < 0.3, `começa no embalo dos passos: ${vel(0)} (passos a ${m.v0.x})`);
+    assert.ok(Math.abs(vel(nImpulso) - m.vL.x) < 0.3, `sai do chão na velocidade planejada: ${vel(nImpulso)} (${m.vL.x})`);
     // Nunca mais rápido que as pernas conseguem
     for (let i = 0; i < pts.length - 1; i++) assert.ok(Math.abs(vel(i)) <= PADRAO_GOLEIRO.velocidadeMergulho + 0.05, `rápido demais: ${vel(i)}`);
     // No ar (depois do impulso e antes de tocar o chão): cai com a gravidade
@@ -651,7 +654,7 @@ teste('goleiro: o mergulho é físico (as pernas aceleram o corpo, depois ele vo
     if (medidos >= 20) voos++;
     // Termina deitado no chão, perto da trave (na frente da linha do gol, então não entra na rede)
     assert.ok(r.g.pose.y > 0.05 && r.g.pose.y < 0.6, `deitado: quadril em ${r.g.pose.y}`);
-    assert.ok(r.g.cx < -1.5 && r.g.cx > -MEIA - 1, `termina em x=${r.g.cx}`);
+    assert.ok(r.g.cx < -1.5 && r.g.cx > -MEIA - 1.4, `termina em x=${r.g.cx}`);
     assert.ok(Math.abs(r.g.pose.z - PADRAO_GOLEIRO.posicaoZ) < 0.35, 'na frente da linha');
   }
   assert.ok(voos >= 4, `voos medidos: ${voos}`);

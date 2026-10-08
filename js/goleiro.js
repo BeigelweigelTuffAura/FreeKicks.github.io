@@ -24,11 +24,11 @@ import { CONFIG } from './config.js?v=4';
 export const PADRAO_GOLEIRO = {
   reflexo: 0.3,             // s entre o chute e a primeira reação
   atrasoBarreira: 0.12,     // s a mais quando a bola passa por cima da barreira (visão tapada)
-  erroLeitura: 0.5,         // m: erro típico (desvio padrão) ao prever onde a bola vai chegar
+  erroLeitura: 0.7,         // m: erro típico (desvio padrão) ao prever onde a bola vai chegar
   distanciaLeitura: 15,     // m: com a bola a essa distância o erro é o erroLeitura cheio; mais perto, lê melhor
   percepcaoCurva: 0.6,      // quanto da curva que a bola ainda vai fazer ele enxerga (1 = tudo; 0 = acha que vai reta)
   variacaoPercepcao: 0.2,   // para mais ou para menos, sorteado em cada cobrança
-  pesoCurva: 1,             // erro a mais por metro de curva que falta, quando a bola vai longe dele (perto, quase nada)
+  pesoCurva: 1.3,           // erro a mais por metro de curva que falta, quando a bola vai longe dele (perto, quase nada)
   pesoSemRotacao: 1,        // erro a mais na bola sem rotação (vezes a intensidade da dança)
   confianca: 0.45,          // m: com a leitura mais incerta que isso, espera mais uma olhada antes de mergulhar (se der tempo)
   intervaloLeitura: 0.12,   // s entre uma releitura e outra
@@ -104,6 +104,7 @@ const PULINHO_DURACAO = 0.13;   // s no ar do passinho (cai na base bem na hora 
 // Leitura e decisão
 const PLANO_MAOS = 0.2;         // m: as mãos pegam a bola um pouco à frente do corpo
 const ALTURA_SEM_PULO = 1.75;  // m: bola perto do corpo até essa altura ele pega de pé; mais alta, estica e pula
+const ENGANO_PERTO = 0.15;      // quanto da curva engana quando a bola vem nele (longe dele, engana por inteiro)
 const LONGE_CURVA = 2.5;        // m: com a bola chegando a essa distância dele (ou mais), a curva engana por inteiro
 const MARGEM_GOL = 0.35;        // m: lendo a bola até isso fora do gol, ele ainda vai nela
 const MAOS_PRONTAS = 0.22;      // s: de pé, ele arma as mãos pelo menos esse tempo antes de a bola chegar
@@ -117,7 +118,7 @@ const ABRACO = 0.3;             // s para trazer a bola encaixada até o peito
 const MAOS_NA_BOLA = 0.08;      // s para as duas mãos envolverem a bola encaixada
 const SEM_SEGURAR = 0.2;        // s depois de espalmar: a mesma bola não é encaixada (é a mão que ainda vem)
 const VOO_MAX = 0.45;           // s: o voo mais longo de um mergulho (mais longe que isso, antes dá passos)
-const ESCORREGA = 10;           // 1/s: quão rápido o corpo para de escorregar no gramado depois do mergulho
+const ESCORREGA = 12;           // 1/s: quão rápido o corpo para de escorregar no gramado depois do mergulho
 
 // Centro do corpo mais baixo possível para uma rolagem: de pé (ajoelhado) ~0,82 m; deitado de lado
 // ~0,33 m. Tombado, quem segura é a coxa (as canelas dobram).
@@ -153,7 +154,9 @@ export function criarGoleiro(posBola, barreira, cfg = CONFIG) {
   const sz = -bz / d1 - bz / d2;
   const bissetriz = Math.abs(sz) > 1e-6 ? bx + ((c.posicaoZ - bz) * sx) / sz : 0;
   let x = bissetriz;
-  if (barreira && barreira.jogadores && barreira.jogadores.length) x -= barreira.lado * c.deslocamento;
+  // (barreira pequena, de longe, tapa pouco: ele sai menos do meio)
+  const n = barreira && barreira.jogadores ? barreira.jogadores.length : 0;
+  if (n) x -= barreira.lado * c.deslocamento * Math.min(1, n / 4);
   const limite = meia - 0.8;
   x = limitar(x, -limite, limite);
   const inicio = limitar(bissetriz, -limite, limite);
@@ -289,11 +292,15 @@ function lerBola(g, bola, c, fis) {
   const curvaY = limitar(reta.y - real.y, -3, 3);
   const curva = Math.hypot(curvaX, curvaY);
   const longe = limitar(Math.abs(real.x - g.cx) / LONGE_CURVA, 0, 1);
-  const engano = (1 - g.percepcao) * (0.35 + 0.65 * longe);
+  const pesoLonge = ENGANO_PERTO + (1 - ENGANO_PERTO) * longe; // vindo nele, a curva quase não engana
+  const engano = (1 - g.percepcao) * pesoLonge;
   const danca = bola.danca ? bola.danca.intensidade || 0 : 0;
   const falta = Math.hypot(real.x - bola.pos.x, real.y - bola.pos.y, plano - bola.pos.z);
   const perto = limitar(falta / Math.max(0.5, c.distanciaLeitura), 0.2, 1.6);
-  const sigma = c.erroLeitura * perto * (1 + c.pesoCurva * Math.min(curva, 1.5) * longe + c.pesoSemRotacao * danca);
+  // (bola vindo nele quase não anda de lado: é fácil de ler; quanto mais longe dele ela vai, mais difícil
+  // julgar o quanto ela ainda anda)
+  const lado = 0.5 + 0.5 * longe;
+  const sigma = c.erroLeitura * perto * (lado + c.pesoCurva * Math.min(curva, 1.5) * longe + c.pesoSemRotacao * danca);
   g.leitura = {
     x: real.x + engano * curvaX + g.erro.x * sigma,
     y: Math.max(0.12, real.y + engano * curvaY + g.erro.y * sigma),
@@ -302,7 +309,7 @@ function lerBola(g, bola, c, fis) {
     sigma,
     curva,
     // O quanto ele sabe que pode estar errado: o erro típico mais a curva que ele sabe que não enxerga
-    incerteza: sigma + (1 - c.percepcaoCurva) * curva * (0.35 + 0.65 * longe),
+    incerteza: sigma + (1 - c.percepcaoCurva) * curva * pesoLonge,
   };
 }
 
@@ -340,16 +347,18 @@ function excesso(l, c) {
   return Math.max(Math.hypot(l.x, l.y) / c.velocidadeMergulho, l.y / c.impulsoVertical, descida);
 }
 
+// De pé, com os pés no chão, o corpo vai de lado no ritmo dos passos; para baixo, dobrando as pernas
+const limitesDePe = (c) => ({ vx: c.velocidadeLateral, ax: c.aceleracaoLateral * 1.5, vy: 3, ay: 15 });
+
 // Tempo (s) para o corpo ir de C0 a Cf, saindo com velocidade v0. Se nenhum mergulho chega lá
 // (longe e alto demais para um voo só), devolve o tempo do mergulho que chega mais perto: até lá ele
 // ainda tem tempo de dar uns passos para o lado antes de se jogar.
 function tempoNecessario(plano, c, v0) {
   if (plano.modo === 'apoio') {
-    // De pé (só os braços e um passo): acelera e freia em cada direção
-    const a = c.velocidadeMergulho / Math.max(1e-3, plano.preparo);
-    const v = Math.max(0.1, c.velocidadeMergulho);
-    const t = (d) => (d <= (v * v) / a ? 2 * Math.sqrt(d / a) : d / v + v / a);
-    return Math.max(MAOS_PRONTAS, t(Math.abs(plano.Cf.x - plano.C0.x)), t(Math.abs(plano.Cf.y - plano.C0.y)));
+    // De pé (um passo para o lado, agacha ou estica o corpo): acelera e freia em cada direção
+    const t = (d, v, a) => (d <= (v * v) / a ? 2 * Math.sqrt(d / a) : d / v + v / a);
+    const { vx, ax, vy, ay } = limitesDePe(c);
+    return Math.max(MAOS_PRONTAS, t(Math.abs(plano.Cf.x - plano.C0.x), vx, ax), t(Math.abs(plano.Cf.y - plano.C0.y), vy, ay));
   }
   // (um mergulho voa no máximo VOO_MAX: para ir mais longe, antes ele dá passos para o lado)
   let melhor = { T: plano.preparo + VOO_MAX, e: Infinity };
@@ -526,9 +535,10 @@ export function atualizarGoleiro(g, bola, dt, cfg = CONFIG, opcoes = {}) {
     g.rotacaoY += limitar(alvoGiro - g.rotacaoY, -3 * dt, 3 * dt);
   }
 
-  // Rebote fraco perto dele depois de uma defesa: ele cai em cima da bola e a puxa para o peito
-  // (a bola vai até as mãos aos poucos, sem pular)
-  if (!g.segurando && Number.isFinite(g.ultimoContato) && t - g.ultimoContato > 0.25) {
+  // Rebote fraco perto dele depois de uma defesa: já no chão (ou de pé), ele cai em cima da bola e a
+  // puxa para o peito (a bola vai até as mãos aos poucos, sem pular)
+  const noChao = !g.mergulho || g.mergulho.noChao || g.mergulho.modo === 'apoio';
+  if (!g.segurando && noChao && Number.isFinite(g.ultimoContato) && t - g.ultimoContato > 0.25) {
     const rapidez = Math.hypot(bola.vel.x, bola.vel.y, bola.vel.z);
     const longe = Math.hypot(bola.pos.x - g.cx, bola.pos.y - g.cy, bola.pos.z - g.z);
     if (rapidez < 5 && longe < c.alcance + 0.3 && bola.pos.z > r + 0.05) {
@@ -717,14 +727,13 @@ function avancarMergulho(g, bola, dt, c, t) {
       };
       if (m.Cf.y < m.C0.y && m.T.y > 0.75) m.Cf.y = m.C0.y;
     }
-    const a = c.velocidadeMergulho / Math.max(1e-3, m.preparo);
-    const vmax = c.velocidadeMergulho;
+    const { vx, ax, vy, ay } = limitesDePe(c);
     const dX = m.Cf.x - g.cx;
     const dY = m.Cf.y - g.cy;
-    const vxDesejada = Math.sign(dX) * Math.min(vmax, Math.sqrt(2 * a * Math.abs(dX)));
-    const vyDesejada = Math.sign(dY) * Math.min(vmax, Math.sqrt(2 * a * Math.abs(dY)));
-    m.v.x += limitar(vxDesejada - m.v.x, -a * dt, a * dt);
-    m.v.y += limitar(vyDesejada - m.v.y, -a * dt, a * dt);
+    const vxDesejada = Math.sign(dX) * Math.min(vx, Math.sqrt(2 * ax * Math.abs(dX)));
+    const vyDesejada = Math.sign(dY) * Math.min(vy, Math.sqrt(2 * ay * Math.abs(dY)));
+    m.v.x += limitar(vxDesejada - m.v.x, -ax * dt, ax * dt);
+    m.v.y += limitar(vyDesejada - m.v.y, -ay * dt, ay * dt);
     g.cx += m.v.x * dt;
     g.cy = Math.max(centroMinimo(0), g.cy + m.v.y * dt);
     const falta = Math.hypot(m.Cf.x - g.cx, m.Cf.y - g.cy);

@@ -30,7 +30,7 @@ function barrasDeAtributos(jogador) {
   return ATRIBUTOS.map(([chave, nome]) => {
     const v = jogador.atributos[chave];
     return `<div class="atributo" title="${nome}">
-      <span>${chave}</span>
+      <span>${nome}</span>
       <i><b style="width:${Math.max(0, (v - 50) * 2)}%;background:${corDaNota(v)}"></b></i>
       <em>${v}</em>
     </div>`;

@@ -10,7 +10,7 @@ import {
   visualAdversario, VISUAL_GOLEIRO_ADVERSARIO, UNIFORMES, poseChute, poseComemoracao, poseLamento, misturarPoses,
 } from './jogadores.js?v=4';
 import { criarAudio, PADRAO_AUDIO } from './audio.js?v=4';
-import { criarInterface } from './interface.js?v=5';
+import { criarInterface } from './interface.js?v=6';
 import { criarPainel } from './painel.js?v=4';
 
 // Os padrões de goleiro, barreira, cobrador, som e cenário moram nos próprios módulos;
