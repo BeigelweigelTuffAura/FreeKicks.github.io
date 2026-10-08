@@ -50,7 +50,19 @@
     const largura = Math.min(1400, Number(params.get('largura')) || 1200);
     const CEU = 0x9fd3f0;
 
-    const nomeCurto = (j) => j.apelido;
+    const nomeCurto = (j) => j.nomeCamisa || j.apelido;
+    // Acha a lenda pelo apelido, pelo nome da camisa ou pelo nome real (sem diferenciar maiúsculas)
+    const acha = (nome) => {
+      const n = String(nome).toLowerCase();
+      return ELENCO.find((e) => [e.apelido, e.nomeCamisa, e.nome, e.referencia].some((x) => x && x.toLowerCase() === n))
+        || ELENCO.find((e) => [e.apelido, e.nomeCamisa, e.nome, e.referencia].some((x) => x && x.toLowerCase().includes(n)));
+    };
+    // Camisa da lenda no formato dos bonecos (igual ao uniformeDaLenda do js/main.novo.js)
+    function uniformeDaLenda(jogador) {
+      const u = jogador.uniforme;
+      if (!u) return jogador.visual.goleiro ? UNIFORMES.goleiroLendas : UNIFORMES.lendas;
+      return { ...u, listras: u.padrao === 'listras' ? u.cores[0] : null, luvas: jogador.visual.goleiro ? (u.cores[0] || '#ff7a1a') : undefined };
+    }
 
     function texturaGrama() {
       const c = document.createElement('canvas');
@@ -126,17 +138,27 @@
 
     const todos = [];
     function boneco(jogador, uniforme) {
-      const unif = uniforme || (jogador.visual.goleiro ? UNIFORMES.goleiroLendas : UNIFORMES.lendas);
+      const unif = uniforme || uniformeDaLenda(jogador);
       const p = criarPersonagem({ visual: jogador.visual, uniforme: unif, numero: jogador.numero, nome: nomeCurto(jogador) });
       todos.push(p);
       return p;
     }
 
     // Grade com o elenco: uma fila de 11 (titulares ou reservas), de frente ou de costas
+    // Adversário genérico (como o main monta a barreira): camisa sem padrão e rosto genérico
+    const ADVERSARIO = { apelido: 'Adversário', numero: 4, nomeCamisa: '', visual: visualAdversario(1, 1.84) };
+    function bonecoAdversario() {
+      const p = criarPersonagem({ visual: ADVERSARIO.visual, uniforme: { ...UNIFORMES.adversario, listras: null }, numero: 4, nome: '' });
+      todos.push(p);
+      return p;
+    }
+
+    // Grade com o elenco: uma fila de 11 (titulares ou reservas) e um adversário, de frente ou de costas
     function grade(ctx, costas, fila) {
-      ELENCO.slice(fila * 11, fila * 11 + 11).forEach((j, i) => {
-        const p = boneco(j);
-        const x = (i - 5) * 0.62;
+      const lista = [...ELENCO.slice(fila * 11, fila * 11 + 11), ADVERSARIO];
+      lista.forEach((j, i) => {
+        const p = j === ADVERSARIO ? bonecoAdversario() : boneco(j);
+        const x = (i - 5.5) * 0.6;
         p.grupo.position.set(x, 0, 0);
         p.grupo.rotation.y = costas ? Math.PI : 0;
         p.aplicarPose(posePadrao(i * 0.9));
@@ -147,15 +169,86 @@
         ctx.rotulo(`${j.numero} ${j.apelido}`, new THREE.Vector3(x, i % 2 ? -0.08 : -0.22, 0));
       });
       ctx.camera.fov = 30;
-      ctx.camera.position.set(0, 1.5, 7.6);
+      ctx.camera.position.set(0, 1.5, 7.8);
       ctx.camera.lookAt(0, 0.92, 0);
       ctx.camera.updateProjectionMatrix();
     }
 
-    secao('frente1', 'Titulares de frente', 'Uniforme rubro-negro (goleiro de cinza e laranja).', 420, (ctx) => grade(ctx, false, 0));
+    secao('frente1', 'Titulares de frente', 'Camisa do time de cada lenda (js/elenco.js) e um adversário genérico no fim.', 420, (ctx) => grade(ctx, false, 0));
     secao('frente2', 'Reservas de frente', '', 420, (ctx) => grade(ctx, false, 1));
     secao('costas1', 'Titulares de costas', 'Número grande e nome nas costas.', 420, (ctx) => grade(ctx, true, 0));
     secao('costas2', 'Reservas de costas', '', 420, (ctx) => grade(ctx, true, 1));
+
+    // Retratos grandes: cada quadro é uma câmera perto de um boneco (frente, 3/4, perfil e costas).
+    // ?quem=apelidos separados por vírgula;  ?corpo mostra o corpo inteiro em vez do busto
+    secao('retrato', 'Retratos (frente, 3/4, perfil e costas)', '?quem=apelidos separados por vírgula; ?corpo = corpo inteiro.', 760, (ctx) => {
+      const nomes = (params.get('quem') || 'Bruxo,Kaiser,Galinho,Pinturicchio,Rei da Falta').split(',');
+      const corpoTodo = params.has('corpo');
+      const bonecos = nomes.map((n) => {
+        const j = n === 'Adversário' ? ADVERSARIO : acha(n);
+        const p = j === ADVERSARIO ? bonecoAdversario() : boneco(j);
+        p.aplicarPose(posePadrao(0));
+        p.grupo.visible = false;
+        ctx.scene.add(p.grupo);
+        return { j, p };
+      });
+      const giros = [0, 0.7, Math.PI / 2, Math.PI];
+      return () => {
+        const r = ctx.renderer;
+        const W = largura / 4;
+        const H = 760 / nomes.length;
+        r.setScissorTest(true);
+        ctx.camera.aspect = W / H;
+        bonecos.forEach(({ j, p }, i) => {
+          p.grupo.visible = true;
+          giros.forEach((g, k) => {
+            p.grupo.rotation.y = g;
+            const yOlho = p.altura - 0.12;
+            ctx.camera.fov = corpoTodo ? 14 : 20;
+            if (corpoTodo) {
+              ctx.camera.position.set(0, p.altura * 0.55, 5.2);
+              ctx.camera.lookAt(0, p.altura * 0.42, 0);
+            } else {
+              ctx.camera.position.set(0, yOlho, 1.45);
+              ctx.camera.lookAt(0, yOlho - 0.1, 0);
+            }
+            ctx.camera.updateProjectionMatrix();
+            const x = k * W;
+            const y = (nomes.length - 1 - i) * H;
+            r.setViewport(x, y, W, H);
+            r.setScissor(x, y, W, H);
+            r.render(ctx.scene, ctx.camera);
+          });
+          p.grupo.visible = false;
+          ctx.rotulo(j.apelido, null, { x: 8 - 30, y: i * H + 6 });
+        });
+        r.setScissorTest(false);
+        ctx.desenhado = true;
+      };
+    });
+
+    // Os seis padrões de camisa (liso, listras, aros, faixa, diagonal, V) de frente e de costas, de perto
+    secao('camisas', 'Padrões de camisa (frente e costas)', 'liso, listras, aros, faixa, diagonal, V e o formato antigo (UNIFORMES).', 520, (ctx) => {
+      const exemplos = ['Becks', 'Dani', 'Galinho', 'Mito', 'Rei da Falta', 'Chila', 'Pinturicchio'].map(acha);
+      const extras = [['lendas (antigo)', UNIFORMES.lendas], ['goleiro (antigo)', UNIFORMES.goleiroLendas]];
+      const lista = [...exemplos.map((j) => [j.apelido + ' ' + j.uniforme.padrao, j, uniformeDaLenda(j)]), ...extras.map(([n, u]) => [n, acha('Rei da Falta'), u])];
+      lista.forEach(([rot, j, u], i) => {
+        [0, Math.PI].forEach((g, k) => {
+          const p = criarPersonagem({ visual: { ...j.visual, goleiro: rot.includes('goleiro') || j.visual.goleiro }, uniforme: u, numero: j.numero, nome: nomeCurto(j) });
+          todos.push(p);
+          const x = (i - (lista.length - 1) / 2) * 0.78 + (k - 0.5) * 0.36;
+          p.grupo.position.set(x, k ? 0 : 0, k ? -0.6 : 0);
+          p.grupo.rotation.y = g;
+          p.aplicarPose(posePadrao(0));
+          ctx.scene.add(p.grupo);
+        });
+        ctx.rotulo(rot, new THREE.Vector3((i - (lista.length - 1) / 2) * 0.78, 0.55, 0));
+      });
+      ctx.camera.fov = 30;
+      ctx.camera.position.set(0, 1.25, 7.4);
+      ctx.camera.lookAt(0, 1.05, 0);
+      ctx.camera.updateProjectionMatrix();
+    });
 
     // De perto: cabeças (para conferir rosto, cabelo e barba)
     secao('rostos', 'Rostos de perto', 'Só para conferir os detalhes; no jogo ninguém fica tão perto. ?fila=1 mostra os reservas; ?nuca e ?perfil giram.', 380, (ctx) => {
@@ -177,9 +270,9 @@
 
     // Câmera de trás do cobrador (estilo PES), a 3–6 m
     secao('cobrador', 'Atrás do cobrador (3 a 6 m)', 'Como a câmera de cobrança vê o jogador: cabelo e número contam muito.', 560, (ctx) => {
-      const escolhidos = ['R. Larcos', 'Bruxo', 'Becks', 'Maestro', 'Robozão', 'Pulga', 'Menino Ney', 'Pibe'];
+      const escolhidos = ['Canhão', 'Bruxo', 'Becks', 'Maestro', 'Robozão', 'Pulga', 'Menino Ney', 'Pibe'];
       escolhidos.forEach((nome, i) => {
-        const j = ELENCO.find((e) => e.apelido === nome);
+        const j = acha(nome);
         const p = boneco(j);
         const x = (i - 3.5) * 1.3;
         p.grupo.position.set(x, 0, 1.2 + (i % 2) * 1.6);
@@ -264,7 +357,7 @@
     // Sequência do chute (de lado e de trás), com a bola onde o pé pega no contato
     function sequenciaChute(ctx, vista) {
       const quadros = [0, 0.15, 0.3, 0.45, 0.5, TEMPO_CONTATO, 0.65, 0.8, 1];
-      const jog = ELENCO.find((e) => e.apelido === (vista === 'canhoto' ? 'R. Larcos' : 'Becks'));
+      const jog = acha((vista === 'canhoto' ? 'Canhão' : 'Becks'));
       const pe = jog.pe;
       quadros.forEach((pr, i) => {
         const p = boneco(jog);
@@ -296,7 +389,7 @@
 
     // Corrida e outras poses
     secao('poses', 'Corrida, comemoração e lamento', 'Ciclo de corrida (8 quadros), comemoração e lamento.', 420, (ctx) => {
-      const jog = ELENCO.find((e) => e.apelido === 'Bruxo');
+      const jog = acha('Bruxo');
       const lista = [];
       for (let i = 0; i < 8; i++) lista.push(['corrida ' + (i / 8), poseCorrida(i / 8)]);
       lista.push(['comemora', poseComemoracao(0.6)], ['comemora 2', poseComemoracao(0.95)], ['lamento', poseLamento(1)]);
@@ -317,7 +410,7 @@
 
     // Poses paradas de perto, de 3 ângulos (frente, lado, 3/4 de costas)
     secao('poses-perto', 'Poses de perto (frente, lado e de trás)', 'Goleiro pronto, barreira, cobrador pronto, lamento e comemoração.', 760, (ctx) => {
-      const jog = ELENCO.find((e) => e.apelido === 'Pulga');
+      const jog = acha('Pulga');
       const lista = [
         ['goleiro', () => poseGoleiroPronto(0.4), VISUAL_GOLEIRO_ADVERSARIO, UNIFORMES.goleiroAdversario],
         ['barreira', () => poseBarreira(0, 0), visualAdversario(2), UNIFORMES.adversario],
@@ -349,7 +442,7 @@
     // Cena montada como no jogo: câmera atrás da bola e câmera aérea
     function cenaJogo(ctx, camera) {
       const bolaPos = { x: 3, z: 22 };
-      const jog = ELENCO.find((e) => e.apelido === (params.get('cobrador') || 'Becks'));
+      const jog = acha((params.get('cobrador') || 'Becks'));
       const p = boneco(jog);
       ctx.scene.add(p.grupo);
       const s = criarSombraBlob(0.4);
@@ -416,7 +509,7 @@
     // Linha do tempo da cobrança (corrida + chute com o movimento do corpo), na câmera do jogo
     secao('sequencia', 'Corrida e chute no tempo (câmera atrás da bola)', 'Cada quadro é um instante (s desde o início da corrida); o contato é marcado com *.', 640, (ctx) => {
       const bolaPos = { x: 3, z: 22 };
-      const jog = ELENCO.find((e) => e.apelido === (params.get('cobrador') || 'Becks'));
+      const jog = acha((params.get('cobrador') || 'Becks'));
       const p = boneco(jog);
       ctx.scene.add(p.grupo);
       const sombra = criarSombraBlob(0.4);
@@ -567,7 +660,7 @@
 
     // Checagens com números: o pé chega na bola? o pé de apoio escorrega? algum pé entra no chão?
     function verificarCobranca(apelido, bolaPos, alvo) {
-      const j = ELENCO.find((e) => e.apelido === apelido);
+      const j = acha(apelido);
       const p = criarPersonagem({ visual: j.visual, uniforme: UNIFORMES.lendas, numero: j.numero, nome: j.apelido });
       const cob = criarCobranca(p, { bola: bolaPos, alvo, pe: j.pe });
       const outro = j.pe === 'D' ? 'E' : 'D';
@@ -619,7 +712,7 @@
     }
     const checagens = [
       verificarCobranca('Becks', { x: 3, z: 22 }, { x: -2.5, z: 0 }),
-      verificarCobranca('R. Larcos', { x: -6, z: 25 }, { x: 2, z: 0 }),
+      verificarCobranca('Canhão', { x: -6, z: 25 }, { x: 2, z: 0 }),
       verificarCobranca('Pibe', { x: 0, z: 20 }, { x: 3, z: 0 }),
       verificarCobranca('Robozão', { x: 8, z: 28 }, { x: -3, z: 0 }),
     ];

@@ -29,6 +29,7 @@
     <button data-camera="f" type="button">Aérea de lado</button>
     <button data-camera="b" type="button">Aérea diagonal</button>
     <button data-camera="c" type="button">Aérea do jogo</button>
+    <button data-camera="j" type="button">Aérea no gol</button>
     <button data-camera="g" type="button">Perto do gol</button>
     <button data-camera="d" type="button">Volta no estádio</button>
     <button data-camera="e" type="button">Visão geral</button>
@@ -36,6 +37,8 @@
     <button class="lance" data-lance="meio" type="button">Bola no meio</button>
     <button class="lance" data-lance="lateral" type="button">Rede por fora</button>
     <button class="lance" data-lance="teto" type="button">Bola no teto</button>
+    <button class="lance" data-lance="tetoTras" type="button">Rola do teto para trás</button>
+    <button class="lance" data-lance="tetoLado" type="button">Sai do teto pelo lado</button>
     <button class="lance" data-lance="trave" type="button">Travessão</button>
     <button id="gol" type="button">GOL!</button>
     <button id="trave" type="button">Uuuh (trave)</button>
@@ -45,9 +48,11 @@
 
   <script type="module">
     // Página de teste do cenário (js/estadio.js) com câmeras fixas, para olhar e comparar capturas.
-    // Endereço: testes/cenario.html?cam=a (a, b, c, d, e, f ou g) · &ui=0 esconde os botões · &teste: cada quadro vale 1/60 s
+    // Endereço: testes/cenario.html?cam=a (a, b, c, d, e, f, g ou j) · &ui=0 esconde os botões · &teste: cada quadro vale 1/60 s
     // · &gol=1 já começa comemorando (com a rede estufando) · &bonecos=0 tira os bonecos de referência
-    // · &lance=angulo (angulo, meio, lateral, teto ou trave) já solta uma bola · &pausa: o tempo só anda com avancar()
+    // · &lance=angulo (angulo, meio, lateral, teto, tetoTras, tetoLado ou trave) já solta uma bola
+    // · &pausa: o tempo só anda com avancar() · &aumento=1.7: a bola fica maior longe da câmera, como no jogo
+    //   (e volta ao tamanho de verdade perto do gol; a rede recebe o raio desenhado)
     // Os lances usam a física de verdade (js/physics.js) e chamam o cenário como o jogo chama:
     // rede.bola a cada quadro, rede.estufar no evento "fundo", trave() no evento de trave e torcida.festa(1) no gol.
     import * as THREE from 'three';
@@ -100,6 +105,7 @@
       e: { pos: [-18, 34, 92], olhar: [0, 6, 0] },                                // visão geral (céu, cobertura e torres)
       f: { pos: [10, 11, 20], olhar: [0, 1, 3] },                                 // aérea de lado (a do jogo, chegando no gol)
       g: { pos: [5.5, 2.4, 6.5], olhar: [0.3, 1.1, -1.2] },                       // perto do gol (para olhar a rede de perto)
+      j: { pos: [9, 11, 15], olhar: [0, 1, -1] },                                  // a aérea do jogo quando a bola chega no gol
     };
     let cameraAtual = parametros.get('cam') || 'a';
     let anguloVolta = 0;
@@ -144,6 +150,8 @@
       meio: { de: [-0.4, 0.5, 9], ate: [0.2, 1.05, -0.3], vel: 28 },    // no meio, forte
       lateral: { de: [8.5, 0.9, 4], ate: [3.6, 1.05, -1.1], vel: 17 },  // de fora, na rede lateral (gol de "rede pelo lado de fora")
       teto: { de: [0.6, 1.0, 9], ate: [0.3, 2.62, -0.9], vel: 9 },      // por cobertura: cai em cima da rede
+      tetoTras: { de: [-0.16, 1, 11.9], ate: [0.23, 2.65, -1.09], vel: 13.3 }, // por cima: cai no teto e rola para trás do gol
+      tetoLado: { de: [-5, 1, 9], ate: [3.5, 2.6, -0.5], vel: 9 },      // de lado: bate na quina do teto e sai pelo lado de fora
       trave: { de: [0.5, 1.2, 9], ate: [1.6, 2.47, 0], vel: 24 },       // no travessão
     };
     const PASSO_FISICA = 1 / 240;
@@ -221,10 +229,27 @@
         cenario.torcida.festa(1);
       }
       bola.position.set(bolaFisica.pos.x, bolaFisica.pos.y, bolaFisica.pos.z);
+      bola.scale.setScalar(escalaDaBola());
       sombra.position.set(bolaFisica.pos.x, 0.01, bolaFisica.pos.z);
       sombra.material.opacity = 0.35 * Math.max(0, 1 - bolaFisica.pos.y / 4);
-      // A rede precisa saber onde a bola está a cada quadro
-      cenario.rede.bola(bolaFisica.pos, CONFIG.raioBola);
+      // A rede precisa saber onde a bola está a cada quadro (com o raio da bola DESENHADA)
+      cenario.rede.bola(bolaFisica.pos, CONFIG.raioBola * bola.scale.x);
+    }
+
+    // Igual ao jogo (&aumento=1.7): longe da câmera a bola aparece maior, mas perto do gol ela volta ao
+    // tamanho de verdade (traves e rede são do tamanho de verdade; a bola grande "furaria" o gol)
+    const AUMENTO = Math.max(1, Number(parametros.get('aumento')) || 1);
+    function escalaDaBola() {
+      if (AUMENTO <= 1) return 1;
+      const p = bola.position;
+      const meia = CONFIG.golLargura / 2;
+      const foraDoGol = Math.hypot(
+        Math.max(0, Math.abs(p.x) - meia),
+        Math.max(0, p.y - CONFIG.golAltura),
+        Math.max(0, p.z, -CONFIG.golProfundidade - p.z));
+      const perto = Math.min(1, Math.max(0, (foraDoGol - 1) / 3)); // 0 até 1 m do gol, 1 a partir de 4 m
+      const longe = camera.position.distanceTo(p) / 12;               // como o jogo: bolaVisivelAte = 12 m
+      return 1 + (Math.min(AUMENTO, Math.max(1, longe)) - 1) * perto;
     }
 
     // Gol "de mentira" (sem bola): só empurra a rede por um instante e a torcida comemora

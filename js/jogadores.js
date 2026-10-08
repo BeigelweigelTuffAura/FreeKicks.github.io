@@ -1,6 +1,8 @@
-// Bonecos 3D dos jogadores: feitos por código (sem arquivos de modelo), low poly e leves para o celular.
+// Bonecos 3D dos jogadores: feitos por código (sem arquivos de modelo), leves para o celular.
 // Cada lenda é reconhecida pelo cabelo, barba, tom de pele, altura, porte, cor da chuteira e número.
 // O corpo tem juntas (tronco, cabeça, ombros, cotovelos, quadris, joelhos e tornozelos) movidas por poses.
+// Cada parte é uma peça lisa (normais suaves) com sombreado leve pintado nos vértices (dobras, axilas,
+// virilha), e o rosto é uma textura pintada (olhos, sobrancelhas, boca, barba rala, raiz do cabelo).
 //
 // Eixos do boneco: pés em y = 0, de frente para +z local. A direita do jogador fica em −x local.
 // Medidas em metros; ângulos em radianos.
@@ -34,10 +36,21 @@ const suave = (t) => {
   return u * u * (3 - 2 * u);
 };
 const misturar = (a, b, k) => a + (b - a) * k;
+// Potência que mantém o sinal (para os anéis "quadrados" e a sola reta)
+const pot = (c, e) => Math.sign(c) * Math.abs(c) ** e;
+// Número pseudoaleatório fixo para cada entrada (0 a 1): variação de tom sem mudar a cada boneco
+const sorteioFixo = (a, b = 0) => {
+  const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+};
 
 // ---------- Uniformes ----------
-// camisa, listras (cor das listras verticais ou null), calcao, meiao, numero (cor do número),
-// gola (gola, punhos e detalhes). Extras: faixaMeiao (listra do meião), luvas (goleiros).
+// Formato do js/elenco.js: camisa, calcao, meiao, numero (cor do número e do nome), gola (gola, punhos e
+// detalhes), padrao e cores (cores do padrão sobre a camisa):
+//   'liso' | 'listras' (verticais, cores[0]) | 'aros' (horizontais) | 'faixa' (faixa no peito, até 3 cores) |
+//   'diagonal' (faixa do ombro direito ao quadril esquerdo) | 'v' (V no peito e nas costas)
+// Formato antigo (UNIFORMES, ainda aceito): listras (cor das listras verticais ou null) no lugar de padrao.
+// Extras: faixaMeiao (listra do meião), luvas (goleiros).
 
 export const UNIFORMES = {
   // Rubro-negro listrado: camisa vermelha com listras pretas, calção e meião pretos
@@ -55,12 +68,65 @@ export const UNIFORMES = {
     camisa: '#c3f02a', listras: null, calcao: '#1b1b1b', meiao: '#c3f02a',
     numero: '#1b1b1b', gola: '#1b1b1b', faixaMeiao: '#1b1b1b', luvas: '#f4f4f4',
   },
-  // Goleiro das lendas (Mito e Chila quando batem a falta): cinza com detalhes laranja
+  // Goleiro das lendas (Mito e Chila quando batem a falta): grafite com detalhes laranja
   goleiroLendas: {
-    camisa: '#7b828b', listras: null, calcao: '#363b43', meiao: '#7b828b',
-    numero: '#ff7a1a', gola: '#ff7a1a', faixaMeiao: '#ff7a1a', luvas: '#ff7a1a',
+    camisa: '#5c636d', listras: null, calcao: '#2f343b', meiao: '#5c636d',
+    numero: '#ff8a2a', gola: '#ff8a2a', faixaMeiao: '#ff8a2a', luvas: '#ff7a1a',
   },
 };
+
+// ---------- Cores ----------
+
+function rgb(cor) {
+  const c = new THREE.Color(cor);
+  return [c.r, c.g, c.b]; // linear (o THREE converte do hexadecimal sRGB)
+}
+// Componentes sRGB de 0 a 255 (para pintar no canvas)
+function rgb255(cor) {
+  const h = new THREE.Color(cor).getHex();
+  return [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+}
+function corMisturada(a, b, k) {
+  return '#' + new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString();
+}
+function luminancia(cor) {
+  const [r, g, b] = rgb(cor);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+// Contraste entre duas cores (1 = nenhum; 21 = preto no branco)
+function contraste(a, b) {
+  const la = luminancia(a);
+  const lb = luminancia(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+function claro(cor) {
+  return luminancia(cor) > 0.18;
+}
+function distanciaCor(a, b) {
+  const x = rgb255(a);
+  const y = rgb255(b);
+  return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+}
+const css = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+// Uniforme no formato único usado aqui (aceita o do elenco e o antigo)
+function normalizarUniforme(u = {}) {
+  const camisa = u.camisa || '#dddddd';
+  let cores = Array.isArray(u.cores) ? u.cores.filter(Boolean) : [];
+  let padrao = u.padrao || (u.listras ? 'listras' : 'liso');
+  if (padrao === 'listras' && u.listras) cores = [u.listras, ...cores.slice(1)];
+  if (padrao !== 'liso' && !cores.length) padrao = 'liso';
+  if (!['liso', 'listras', 'aros', 'faixa', 'diagonal', 'v'].includes(padrao)) padrao = 'liso';
+  const calcao = u.calcao || camisa;
+  const meiao = u.meiao || calcao;
+  const numero = u.numero || (claro(camisa) ? '#111111' : '#ffffff');
+  const gola = u.gola || numero;
+  // Listra do meião: a primeira cor do uniforme que aparece sobre o meião
+  const faixaMeiao = u.faixaMeiao
+    || [gola, camisa, ...cores, numero].find((c) => distanciaCor(c, meiao) > 70)
+    || (claro(meiao) ? '#222222' : '#eeeeee');
+  return { camisa, calcao, meiao, numero, gola, padrao, cores: cores.slice(0, 3), faixaMeiao, luvas: u.luvas || null };
+}
 
 // ---------- Medidas do boneco de referência (1,80 m; o resto é escala) ----------
 
@@ -83,10 +149,11 @@ const QUEDA_AGACHAR = 0.26; // m que o quadril desce com agachar = 1
 const SOLA = [[0, -0.07, -0.055], [0, -0.07, 0.1], [0, -0.062, 0.19]];
 const PEITO_DO_PE = [0, -0.005, 0.085]; // onde o pé pega na bola (em cima do pé, no espaço do tornozelo)
 
-// ---------- Cache (geometrias e materiais compartilhados entre todos os bonecos) ----------
+// ---------- Cache (geometrias, texturas e materiais compartilhados entre todos os bonecos) ----------
 
 const cacheGeo = new Map();
 const cacheMat = new Map();
+const cacheTex = new Map();
 function geo(chave, criar) {
   let g = cacheGeo.get(chave);
   if (!g) {
@@ -95,53 +162,48 @@ function geo(chave, criar) {
   }
   return g;
 }
+const temDocumento = typeof document !== 'undefined';
+function textura(chave, criar) {
+  if (!temDocumento) return null;
+  let t = cacheTex.get(chave);
+  if (!t) {
+    t = criar();
+    cacheTex.set(chave, t);
+  }
+  return t;
+}
 
-// Material de cor lisa (Lambert: barato e com luz suave). duplo: pinta os dois lados (cabelo fino).
-function matCor(cor, duplo = false) {
+// Material com sombreado nos vértices. brilho > 0 = reflexo (couro da chuteira, cabelo); mapa = textura.
+function matCor(cor, { duplo = false, brilho = 0, mapa = null, chaveMapa = '' } = {}) {
   const c = new THREE.Color(cor);
-  const chave = `cor:${c.getHexString()}:${duplo ? 2 : 1}`;
+  const chave = `cor:${c.getHexString()}:${duplo ? 2 : 1}:${brilho}:${mapa ? chaveMapa : ''}`;
   let m = cacheMat.get(chave);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color: c, side: duplo ? THREE.DoubleSide : THREE.FrontSide });
+    const base = { color: c, vertexColors: true, side: duplo ? THREE.DoubleSide : THREE.FrontSide };
+    if (mapa) base.map = mapa;
+    m = brilho > 0
+      ? new THREE.MeshPhongMaterial({ ...base, shininess: brilho, specular: new THREE.Color(0x2b2b2b) })
+      : new THREE.MeshLambertMaterial(base);
     cacheMat.set(chave, m);
   }
   return m;
 }
 
-function corMisturada(a, b, k) {
-  return '#' + new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString();
+function novaTextura(canvas, repetir = false) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  if (repetir) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+function novoCanvas(w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  return [canvas, canvas.getContext('2d')];
 }
 
-// Junta várias geometrias numa só malha (mesma cor = uma malha só: menos trabalho para o celular).
-// partes: [geometria] ou [[geometria, matriz]]
-function fundir(partes) {
-  const prontas = partes.map((p) => {
-    const [g, m] = Array.isArray(p) ? p : [p, null];
-    const n = g.index ? g.toNonIndexed() : g.clone();
-    if (m) n.applyMatrix4(m);
-    g.dispose();
-    return n;
-  });
-  let total = 0;
-  for (const n of prontas) total += n.attributes.position.count;
-  const pos = new Float32Array(total * 3);
-  const nor = new Float32Array(total * 3);
-  const uv = new Float32Array(total * 2);
-  let o = 0;
-  for (const n of prontas) {
-    pos.set(n.attributes.position.array, o * 3);
-    nor.set(n.attributes.normal.array, o * 3);
-    if (n.attributes.uv) uv.set(n.attributes.uv.array, o * 2);
-    o += n.attributes.position.count;
-    n.dispose();
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  g.computeBoundingSphere();
-  return g;
-}
+// ---------- Geometria: ajudantes ----------
 
 const matriz = (x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) =>
   new THREE.Matrix4().compose(
@@ -150,38 +212,227 @@ const matriz = (x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz 
     new THREE.Vector3(sx, sy, sz),
   );
 
-// Peça torneada (como no torno): perfil [[raio, y], ...] de baixo para cima, girado em volta do eixo y
-function torneado(perfil, segmentos = 7, sx = 1, sz = 1) {
-  const g = new THREE.LatheGeometry(perfil.map(([r, y]) => new THREE.Vector2(r, y)), segmentos);
-  if (sx !== 1 || sz !== 1) g.scale(sx, 1, sz);
+// Sombreado nos vértices: f(x, y, z, i) devolve um número (cinza) ou [r, g, b]; sem f, tudo 1
+function comCor(g, f) {
+  const p = g.attributes.position;
+  const c = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const v = f ? f(p.getX(i), p.getY(i), p.getZ(i), i) : 1;
+    if (typeof v === 'number') c.set([v, v, v], i * 3);
+    else c.set(v, i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(c, 3));
   return g;
 }
 
-// Peça feita de anéis elípticos [y, meiaLargura, meiaProfundidade] de baixo para cima.
-// A textura dá a volta: u = 0,25 na frente (+z), 0,75 nas costas; v cresce com o comprimento da superfície.
-function anelado(aneis, segmentos) {
+// Todos os vértices com a mesma coordenada de textura (peças lisas que usam a textura do rosto)
+function uvFixo(g, u, v) {
+  const n = g.attributes.position.count;
+  const a = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) a.set([u, v], i * 2);
+  g.setAttribute('uv', new THREE.BufferAttribute(a, 2));
+  return g;
+}
+
+// Normais suaves também nas costuras e nos polos: vértices no mesmo lugar ficam com a mesma normal
+function suavizarCostura(g) {
+  const p = g.attributes.position;
+  const n = g.attributes.normal;
+  const grupos = new Map();
+  for (let i = 0; i < p.count; i++) {
+    const k = `${Math.round(p.getX(i) * 2e4)},${Math.round(p.getY(i) * 2e4)},${Math.round(p.getZ(i) * 2e4)}`;
+    let l = grupos.get(k);
+    if (!l) grupos.set(k, (l = []));
+    l.push(i);
+  }
+  const v = new THREE.Vector3();
+  const w = new THREE.Vector3();
+  for (const l of grupos.values()) {
+    if (l.length < 2) continue;
+    v.set(0, 0, 0);
+    for (const i of l) v.add(w.fromBufferAttribute(n, i));
+    if (v.lengthSq() < 1e-12) continue;
+    v.normalize();
+    for (const i of l) n.setXYZ(i, v.x, v.y, v.z);
+  }
+  return g;
+}
+
+// Garante que as faces apontem para fora (volume com sinal positivo em volta do centro)
+function orientar(g, centro = null) {
+  const p = g.attributes.position;
+  const idx = g.index;
+  const o = new THREE.Vector3();
+  if (centro) o.copy(centro);
+  else {
+    for (let i = 0; i < p.count; i++) o.x += p.getX(i), o.y += p.getY(i), o.z += p.getZ(i);
+    o.divideScalar(Math.max(1, p.count));
+  }
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let vol = 0;
+  const n = idx ? idx.count : p.count;
+  for (let k = 0; k < n; k += 3) {
+    const [i, j, l] = idx ? [idx.getX(k), idx.getX(k + 1), idx.getX(k + 2)] : [k, k + 1, k + 2];
+    a.fromBufferAttribute(p, i).sub(o);
+    b.fromBufferAttribute(p, j).sub(o);
+    c.fromBufferAttribute(p, l).sub(o);
+    vol += a.dot(b.cross(c));
+  }
+  if (vol < 0 && idx) {
+    const arr = idx.array;
+    for (let k = 0; k < arr.length; k += 3) {
+      const t = arr[k + 1];
+      arr[k + 1] = arr[k + 2];
+      arr[k + 2] = t;
+    }
+    idx.needsUpdate = true;
+  }
+  return g;
+}
+
+function finalizar(g, centro = null) {
+  orientar(g, centro);
+  g.computeVertexNormals();
+  suavizarCostura(g);
+  if (!g.attributes.color) comCor(g);
+  if (!g.attributes.uv) uvFixo(g, 0, 0);
+  g.computeBoundingSphere();
+  return g;
+}
+
+// Junta várias geometrias numa só malha (mesmo material = uma malha só: menos trabalho para o celular).
+// partes: [geometria] ou [[geometria, matriz]]. Mantém normais, cores e coordenadas de textura.
+function fundir(partes) {
+  const prontas = partes.filter(Boolean).map((p) => {
+    const [g, m] = Array.isArray(p) ? p : [p, null];
+    const n = g.clone();
+    if (m) n.applyMatrix4(m);
+    if (!n.attributes.normal) n.computeVertexNormals();
+    if (!n.attributes.color) comCor(n);
+    if (!n.attributes.uv) uvFixo(n, 0, 0);
+    g.dispose();
+    return n;
+  });
+  let total = 0;
+  let totalIdx = 0;
+  for (const n of prontas) {
+    total += n.attributes.position.count;
+    totalIdx += n.index ? n.index.count : n.attributes.position.count;
+  }
+  const pos = new Float32Array(total * 3);
+  const nor = new Float32Array(total * 3);
+  const cor = new Float32Array(total * 3);
+  const uv = new Float32Array(total * 2);
+  const idx = new (total > 65535 ? Uint32Array : Uint16Array)(totalIdx);
+  let o = 0;
+  let oi = 0;
+  for (const n of prontas) {
+    const c = n.attributes.position.count;
+    pos.set(n.attributes.position.array, o * 3);
+    nor.set(n.attributes.normal.array, o * 3);
+    cor.set(n.attributes.color.array, o * 3);
+    uv.set(n.attributes.uv.array, o * 2);
+    if (n.index) for (let k = 0; k < n.index.count; k++) idx[oi++] = n.index.getX(k) + o;
+    else for (let k = 0; k < c; k++) idx[oi++] = o + k;
+    o += c;
+    n.dispose();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(cor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeBoundingSphere();
+  return g;
+}
+
+// ---------- Peças em anéis (tronco, calção, braços, pernas, meião) ----------
+// Anel: [y, meia largura (x), frente (+z), trás (−z), q, dx, dz]. q = 2 é elipse; mais que 2, mais
+// "quadrado" (tronco). A lista vai de baixo para cima ao longo da superfície (pode voltar para dentro
+// nas beiradas da barra e da gola). A textura dá a volta: u = 0 no lado direito do jogador (−x),
+// 0,25 na frente, 0,5 no lado esquerdo, 0,75 nas costas; v cresce com o comprimento da superfície.
+
+function lerAnel(a) {
+  return { y: a[0], l: a[1], f: a[2], t: a[3] ?? a[2], q: a[4] ?? 2, dx: a[5] ?? 0, dz: a[6] ?? 0 };
+}
+function anelMisturado(a, b, k) {
+  const r = {};
+  for (const c of ['y', 'l', 'f', 't', 'q', 'dx', 'dz']) r[c] = misturar(a[c], b[c], k);
+  return r;
+}
+
+// seg + 1 pontos [x, z] espalhados por igual no comprimento de cada quarto do anel
+function pontosAnel(an, seg) {
+  const pts = [];
+  if (an.l < 1e-6 && an.f < 1e-6 && an.t < 1e-6) {
+    for (let i = 0; i <= seg; i++) pts.push([an.dx, an.dz]);
+    return pts;
+  }
+  const e = 2 / an.q;
+  const quarto = seg / 4;
+  const N = 24;
+  for (let k = 0; k < 4; k++) {
+    const dens = [];
+    const acum = [0];
+    for (let m = 0; m <= N; m++) {
+      const phi = -Math.PI / 2 + (k + m / N) * (Math.PI / 2);
+      const s = Math.sin(phi);
+      const c = Math.cos(phi);
+      dens.push([an.dx + an.l * pot(s, e), an.dz + (c >= 0 ? an.f : an.t) * pot(c, e)]);
+      if (m > 0) acum.push(acum[m - 1] + Math.hypot(dens[m][0] - dens[m - 1][0], dens[m][1] - dens[m - 1][1]));
+    }
+    const total = acum[N] || 1;
+    for (let i = 0; i < quarto; i++) {
+      const alvo = (i / quarto) * total;
+      let m = 1;
+      while (m < N && acum[m] < alvo) m++;
+      const f = (alvo - acum[m - 1]) / ((acum[m] - acum[m - 1]) || 1);
+      pts.push([misturar(dens[m - 1][0], dens[m][0], f), misturar(dens[m - 1][1], dens[m][1], f)]);
+    }
+  }
+  pts.push(pts[0].slice());
+  return pts;
+}
+
+// Peça em anéis. opcoes: deformar(x, y, z, u, j) → [x, y, z] (relevos), cor(x, y, z, u, j) → sombreado
+function tubo(lista, seg, { deformar = null, cor = null } = {}) {
+  const aneis = lista.map(lerAnel);
   const n = aneis.length;
   const comp = [0];
   for (let j = 1; j < n; j++) {
-    const [y0, w0, d0] = aneis[j - 1];
-    const [y1, w1, d1] = aneis[j];
-    comp.push(comp[j - 1] + Math.hypot(y1 - y0, (w1 + d1 - w0 - d0) / 2));
+    const a = aneis[j - 1];
+    const b = aneis[j];
+    comp.push(comp[j - 1] + Math.hypot(b.y - a.y, (b.l + b.f + b.t - a.l - a.f - a.t) / 3));
   }
-  const total = comp[n - 1];
+  const total = comp[n - 1] || 1;
   const pos = [];
   const uv = [];
+  const cores = [];
   const idx = [];
   for (let j = 0; j < n; j++) {
-    const [y, w, d] = aneis[j];
-    for (let i = 0; i <= segmentos; i++) {
-      const phi = -Math.PI / 2 + (i / segmentos) * Math.PI * 2;
-      pos.push(w * Math.sin(phi), y, d * Math.cos(phi));
-      uv.push(i / segmentos, comp[j] / total);
+    const pts = pontosAnel(aneis[j], seg);
+    for (let i = 0; i <= seg; i++) {
+      let x = pts[i][0];
+      let y = aneis[j].y;
+      let z = pts[i][1];
+      const u = i / seg;
+      if (deformar) {
+        const r = deformar(x, y, z, u, j);
+        if (r) [x, y, z] = r;
+      }
+      pos.push(x, y, z);
+      uv.push(u, comp[j] / total);
+      const c = cor ? cor(x, y, z, u, j) : 1;
+      if (typeof c === 'number') cores.push(c, c, c);
+      else cores.push(c[0], c[1], c[2]);
     }
   }
-  const linha = segmentos + 1;
+  const linha = seg + 1;
   for (let j = 0; j < n - 1; j++) {
-    for (let i = 0; i < segmentos; i++) {
+    for (let i = 0; i < seg; i++) {
       const a = j * linha + i;
       const b = a + 1;
       const d = a + linha;
@@ -192,136 +443,382 @@ function anelado(aneis, segmentos) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cores, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
-  // Costura (primeira e última coluna) e polos (anéis de raio zero): média das normais, sem vinco
-  const nor = g.attributes.normal;
-  const v = new THREE.Vector3();
-  for (let j = 0; j < n; j++) {
-    const a = j * linha;
-    const b = a + segmentos;
-    if (aneis[j][1] === 0) {
-      v.set(0, 0, 0);
-      for (let i = a; i <= b; i++) v.add(new THREE.Vector3().fromBufferAttribute(nor, i));
-      v.normalize();
-      for (let i = a; i <= b; i++) nor.setXYZ(i, v.x, v.y, v.z);
-    } else {
-      v.fromBufferAttribute(nor, a).add(new THREE.Vector3().fromBufferAttribute(nor, b)).normalize();
-      nor.setXYZ(a, v.x, v.y, v.z);
-      nor.setXYZ(b, v.x, v.y, v.z);
+  suavizarCostura(g);
+  g.computeBoundingSphere();
+
+  // Para as texturas: o anel em cada v e o v de cada altura (no trecho que sobe)
+  const anelNoV = (v) => {
+    const alvo = limitar(v, 0, 1) * total;
+    for (let j = 1; j < n; j++) {
+      if (alvo <= comp[j] || j === n - 1) {
+        const k = limitar((alvo - comp[j - 1]) / ((comp[j] - comp[j - 1]) || 1), 0, 1);
+        return anelMisturado(aneis[j - 1], aneis[j], k);
+      }
     }
-  }
-  return { geometria: g, v: (y) => interpolarV(aneis, comp, total, y) };
+    return aneis[n - 1];
+  };
+  const vDeY = (y) => {
+    let melhor = 0;
+    for (let j = 1; j < n; j++) {
+      const a = aneis[j - 1].y;
+      const b = aneis[j].y;
+      if (b > a && y >= a && y <= b) return (comp[j - 1] + (comp[j] - comp[j - 1]) * ((y - a) / (b - a))) / total;
+      if (b > a && y > b) melhor = comp[j] / total;
+    }
+    return melhor;
+  };
+  const perimetro = (y) => {
+    const v = vDeY(y);
+    const pts = pontosAnel(anelNoV(v), 64);
+    let s = 0;
+    for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    return s;
+  };
+  return { geometria: g, anelNoV, vDeY, perimetro, total };
 }
 
-function interpolarV(aneis, comp, total, y) {
-  for (let j = 1; j < aneis.length; j++) {
-    if (y <= aneis[j][0] || j === aneis.length - 1) {
-      const y0 = aneis[j - 1][0];
-      const f = limitar((y - y0) / ((aneis[j][0] - y0) || 1), 0, 1);
-      return (comp[j - 1] + (comp[j] - comp[j - 1]) * f) / total;
-    }
-  }
-  return 1;
-}
+// Gaussiana suave (para sombreados e relevos)
+const sino = (d, s) => Math.exp(-(d * d) / (s * s));
+// Distância em u dando a volta (0 e 1 são o mesmo lugar)
+const du = (u, alvo) => {
+  const d = Math.abs(u - alvo) % 1;
+  return Math.min(d, 1 - d);
+};
 
 // ---------- Tronco (camisa) e bacia (calção) ----------
-// Anéis da camisa: [y acima da cintura, meia largura, meia profundidade]. Barra solta por cima do calção.
+// Tronco em V: ombros e peito largos, cintura mais fina; a barra fica solta por cima do calção.
 const ANEIS_CAMISA = [
-  [-0.06, 0.172, 0.122],
-  [0.04, 0.166, 0.118],
-  [0.16, 0.17, 0.122],
-  [0.27, 0.18, 0.126],
-  [0.35, 0.185, 0.122],
-  [0.41, 0.178, 0.11],
-  [0.448, 0.15, 0.092],
-  [0.472, 0.1, 0.07],
-  [0.482, 0.058, 0.052],
-  [0.486, 0, 0],
+  [-0.084, 0.152, 0.106, 0.116, 2.3],   // beirada de dentro da barra
+  [-0.100, 0.169, 0.121, 0.131, 2.3],   // barra
+  [0.030, 0.157, 0.114, 0.114, 2.4],    // cintura
+  [0.150, 0.163, 0.121, 0.108, 2.5],
+  [0.270, 0.180, 0.131, 0.112, 2.7],    // peito
+  [0.345, 0.189, 0.125, 0.113, 2.6],    // altura das axilas
+  [0.395, 0.181, 0.111, 0.106, 2.4],    // ombros
+  [0.432, 0.152, 0.093, 0.092, 2.2],
+  [0.458, 0.118, 0.080, 0.082, 2.1],    // trapézio
+  [0.475, 0.083, 0.070, 0.072, 2.0],
+  [0.486, 0.072, 0.067, 0.069, 2.0],    // gola
+  [0.481, 0.065, 0.061, 0.063, 2.0],    // beirada da gola, para dentro
+  [0.440, 0, 0, 0],
 ];
-const camisaBase = anelado(ANEIS_CAMISA, 12);
+const camisaBase = tubo(ANEIS_CAMISA, 16, {
+  cor: (x, y, z, u, j) => {
+    if (j === 0 || j >= ANEIS_CAMISA.length - 2) return 0.55; // por dentro da barra e da gola
+    const lado = Math.abs(x) / 0.19;
+    const axila = sino(y - 0.3, 0.09) * Math.max(0, lado - 0.6) * 0.7;
+    const barra = 0.1 * sino(y + 0.1, 0.05);
+    const dobra = 0.05 * sino(y - 0.05, 0.07) * Math.max(0, lado - 0.4);
+    return 1 - axila - barra - dobra;
+  },
+});
 
 const ANEIS_CALCAO = [
-  [-0.145, 0, 0],
-  [-0.14, 0.09, 0.07],
-  [-0.115, 0.16, 0.11],
-  [-0.05, 0.176, 0.12],
-  [0.05, 0.172, 0.118],
-  [0.13, 0.162, 0.112],
-  [0.135, 0, 0],
+  [-0.150, 0, 0, 0],
+  [-0.146, 0.040, 0.040, 0.050],
+  [-0.126, 0.092, 0.072, 0.092, 2.2],   // entre as pernas (a virilha é estreita)
+  [-0.085, 0.146, 0.100, 0.120, 2.3],
+  [-0.045, 0.156, 0.106, 0.122, 2.3],   // quadris (os lados ficam por conta das pernas do calção)
+  [-0.005, 0.148, 0.104, 0.112, 2.3],   // daqui para cima fica por dentro da camisa
+  [0.060, 0.140, 0.100, 0.102, 2.3],
+  [0.120, 0.134, 0.096, 0.096, 2.2],
+  [0.130, 0, 0, 0],
 ];
+function geoCalcao() {
+  return tubo(ANEIS_CALCAO, 12, {
+    // Divisão entre os glúteos e dobra da virilha
+    deformar: (x, y, z, u) => [x, y, z + 0.013 * sino(du(u, 0.75), 0.035) * suave((0.02 - y) / 0.08)],
+    cor: (x, y, z) => 1 - 0.2 * suave((-0.08 - y) / 0.06) - 0.08 * sino(y - 0.03, 0.05),
+  }).geometria;
+}
+
+// Perna do calção (presa na coxa): mais larga que a coxa, com barra
+const ANEIS_PERNA_CALCAO = [
+  [-0.203, 0.082, 0.084, 0.086],  // beirada de dentro da barra
+  [-0.215, 0.099, 0.101, 0.104],  // barra
+  [-0.120, 0.100, 0.103, 0.108],
+  [-0.055, 0.097, 0.102, 0.107],
+  [-0.005, 0.078, 0.088, 0.094],  // em cima afina para dentro da barra da camisa
+  [0.030, 0.046, 0.060, 0.066],
+  [0.048, 0, 0, 0],
+].map((a) => [...a, 2, 0.004]); // um pouco para fora (lado de fora em +x; a perna direita é espelhada)
+function geoPernaCalcao() {
+  return tubo(ANEIS_PERNA_CALCAO, 10, {
+    cor: (x, y, z, u, j) => (j === 0 ? 0.5 : 1 - 0.22 * Math.max(0, -x / 0.09) * suave((0.05 - y) / 0.2) - 0.12 * sino(y + 0.215, 0.03)),
+  }).geometria;
+}
+
+// ---------- Braços ----------
+
+const ANEIS_MANGA = [
+  [-0.138, 0.049, 0.050, 0.050],  // beirada de dentro
+  [-0.146, 0.060, 0.061, 0.061],  // barra
+  [-0.060, 0.063, 0.063, 0.063],
+  [0.015, 0.064, 0.062, 0.062],
+  [0.050, 0.051, 0.049, 0.049],
+  [0.074, 0, 0, 0],
+].map((a) => [...a, 2, 0.004]); // ombro (deltoide) um pouco para fora
+const ANEIS_MANGA_LONGA = [
+  [-0.322, 0, 0, 0],
+  [-0.314, 0.030, 0.030, 0.033],
+  [-0.292, 0.046, 0.047, 0.051],
+  [-0.180, 0.055, 0.058, 0.058],
+  [-0.060, 0.061, 0.062, 0.062],
+  [0.015, 0.064, 0.062, 0.062],
+  [0.050, 0.051, 0.049, 0.049],
+  [0.074, 0, 0, 0],
+].map((a) => [...a, 2, 0.004]);
+const ANEIS_BRACO = [
+  [-0.318, 0, 0, 0],
+  [-0.309, 0.022, 0.020, 0.025],
+  [-0.290, 0.034, 0.032, 0.038],   // cotovelo
+  [-0.230, 0.040, 0.042, 0.043],
+  [-0.150, 0.046, 0.050, 0.050],   // bíceps e tríceps
+  [-0.050, 0.048, 0.049, 0.050],
+];
+const ANEIS_ANTEBRACO = [
+  [-0.262, 0, 0, 0],
+  [-0.256, 0.014, 0.018, 0.016],
+  [-0.238, 0.021, 0.027, 0.025],   // punho: mais largo de frente para trás
+  [-0.160, 0.030, 0.031, 0.030],
+  [-0.070, 0.039, 0.039, 0.037],   // músculos do antebraço
+  [0.020, 0.033, 0.030, 0.036],
+  [0.038, 0, 0, 0],
+];
+const ANEIS_ANTEBRACO_MANGA = [
+  [-0.235, 0.031, 0.035, 0.035],   // beirada de dentro do punho
+  [-0.243, 0.037, 0.041, 0.041],   // punho
+  [-0.150, 0.041, 0.045, 0.045],
+  [-0.040, 0.049, 0.049, 0.049],
+  [0.020, 0.045, 0.045, 0.047],
+  [0.042, 0, 0, 0],
+];
+// Lado de dentro do braço (−x no braço esquerdo; o direito é espelhado) um pouco mais escuro
+const corBraco = (x, y, z, u, j, n) => (j === 0 || j === n - 1 ? 0.92 : 1 - 0.1 * Math.max(0, -x / 0.05));
+
+// Mão: palma e dedos (um pouco dobrados para a palma, que fica para −x) e o dedão na frente
+function geoMao(luva = false) {
+  const k = luva ? 1.32 : 1;
+  const palma = tubo([
+    [-0.176, 0, 0, 0],
+    [-0.165, 0.010, 0.026, 0.024, 2.5],
+    [-0.108, 0.013, 0.039, 0.034, 3],   // juntas dos dedos
+    [-0.060, 0.017, 0.040, 0.034, 3],   // palma
+    [-0.008, 0.015, 0.028, 0.026, 2.5],  // punho
+    [0.012, 0, 0, 0],
+  ].map((a) => [a[0] * (luva ? 1.08 : 1), a[1] * k, a[2] * k, a[3] * k, a[4]]), 8, {
+    deformar: (x, y, z) => {
+      const d = Math.max(0, -0.1 - y); // dedos dobrando para a palma
+      return [x - d * 0.55 - d * d * 4, y + d * 0.12, z];
+    },
+    cor: (x) => (x < 0 ? 0.88 : 1),
+  }).geometria;
+  const dedao = tubo([
+    [-0.055, 0, 0, 0],
+    [-0.045, 0.010, 0.011, 0.011],
+    [0.0, 0.012, 0.014, 0.014],
+    [0.012, 0, 0, 0],
+  ].map((a) => [a[0], a[1] * k, a[2] * k, a[3] * k]), 4).geometria;
+  const partes = [palma, [dedao, matriz(-0.006 * k, -0.045, 0.03 * k, 0.45, 0, 0.35)]];
+  if (luva) {
+    partes.push(tubo([
+      [-0.02, 0.036, 0.04, 0.04],
+      [0.025, 0.036, 0.04, 0.04],
+      [0.03, 0.03, 0.034, 0.034],
+    ], 8).geometria);
+  }
+  return finalizar(fundir(partes));
+}
+
+// ---------- Pernas e pés ----------
+
+const ANEIS_COXA = [
+  [-0.492, 0, 0, 0],
+  [-0.484, 0.030, 0.031, 0.030],
+  [-0.466, 0.047, 0.050, 0.047],    // ponta redonda: cobre a junta do joelho
+  [-0.425, 0.054, 0.059, 0.052],    // joelho (patela na frente)
+  [-0.350, 0.065, 0.071, 0.060],
+  [-0.250, 0.078, 0.085, 0.070],    // quadríceps
+  [-0.150, 0.080, 0.084, 0.076],
+  [-0.050, 0.070, 0.074, 0.072],    // dentro do calção
+  [0.020, 0, 0, 0],
+];
+const ANEIS_JOELHO = [
+  [-0.100, 0.051, 0.048, 0.063],
+  [-0.030, 0.046, 0.049, 0.050],
+  [0.010, 0.040, 0.044, 0.040],
+  [0.030, 0, 0, 0],
+];
+const ANEIS_MEIAO = [
+  [-0.448, 0, 0, 0],
+  [-0.428, 0.032, 0.040, 0.038],    // dentro da chuteira
+  [-0.385, 0.032, 0.034, 0.034],    // tornozelo
+  [-0.300, 0.043, 0.046, 0.050],
+  [-0.200, 0.055, 0.057, 0.071],    // panturrilha
+  [-0.120, 0.059, 0.059, 0.074],    // caneleira por baixo
+  [-0.077, 0.060, 0.058, 0.067],    // dobra de cima
+  [-0.061, 0.055, 0.053, 0.061],
+  [-0.066, 0.049, 0.047, 0.057],    // beirada para dentro
+];
+const meiaoBase = tubo(ANEIS_MEIAO, 8, {
+  cor: (x, y, z, u, j) => (j === ANEIS_MEIAO.length - 1 ? 0.55 : 1 - 0.1 * Math.max(0, -x / 0.06) - 0.08 * sino(y + 0.39, 0.05)),
+});
+
+// Chuteira: estações ao longo do pé [z, meia largura, topo, sola], de trás (calcanhar) para o bico
+const ESTACOES_CHUTEIRA = [
+  [-0.073, 0.000, -0.024, -0.060],
+  [-0.064, 0.026, 0.006, -0.069],
+  [-0.035, 0.037, 0.015, -0.070],   // calcanhar (contraforte)
+  [0.000, 0.039, 0.004, -0.070],    // boca da chuteira
+  [0.040, 0.043, -0.013, -0.070],   // peito do pé (cadarço)
+  [0.090, 0.047, -0.031, -0.070],   // parte larga
+  [0.145, 0.043, -0.042, -0.0695],
+  [0.181, 0.030, -0.048, -0.066],   // bico
+  [0.199, 0.000, -0.056, -0.061],
+];
+function geoChuteira() {
+  const seg = 10;
+  const pos = [];
+  const uv = [];
+  const cores = [];
+  const idx = [];
+  const n = ESTACOES_CHUTEIRA.length;
+  ESTACOES_CHUTEIRA.forEach(([z, w, topo, sola], k) => {
+    const yc = (topo + sola) / 2;
+    const h = (topo - sola) / 2;
+    for (let i = 0; i <= seg; i++) {
+      const th = (i / seg) * Math.PI * 2; // 0 = em cima (cadarço), π = sola
+      const s = Math.sin(th);
+      const c = Math.cos(th);
+      const e = c < 0 ? 2 / 6 : 2 / 2.4; // sola bem reta, peito do pé arredondado
+      let x = w * pot(s, 2 / 2.6);
+      let y = yc + h * pot(c, e);
+      // Arco do pé (lado de dentro, −x): a sola sobe um pouco no meio
+      if (x < 0 && c < -0.3) y += 0.004 * sino(z - 0.03, 0.04) * Math.min(1, -x / Math.max(w, 1e-6));
+      pos.push(x, y, z);
+      uv.push(i / seg, k / (n - 1));
+      cores.push(...(c < -0.75 ? [0.8, 0.8, 0.8] : [1, 1, 1]));
+    }
+  });
+  const linha = seg + 1;
+  for (let k = 0; k < n - 1; k++) {
+    for (let i = 0; i < seg; i++) {
+      const a = k * linha + i;
+      idx.push(a, a + linha, a + 1, a + 1, a + linha, a + linha + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cores, 3));
+  g.setIndex(idx);
+  return finalizar(g);
+}
 
 // ---------- Cabeça ----------
+// mand: largura da mandíbula (0 = rosto fino, 1 = queixo largo)
 
 // Ponto da superfície da cabeça na direção (x, y, z) da esfera unitária, afastado 'folga' m da pele.
-// Mandíbula mais estreita que o crânio e queixo um pouco para a frente.
-function pontoCabeca(x, y, z, folga = 0, escala = 1) {
+function pontoCabeca(x, y, z, folga = 0, escala = 1, mand = 0.5) {
   const baixo = Math.max(0, -y);
-  const kx = 1 - 0.3 * baixo * baixo;
-  const kz = 1 - 0.12 * baixo * baixo;
-  const queixo = z > 0 ? 0.014 * baixo * z : 0;
+  const tras = Math.max(0, -z);
+  const g = (a, b, c, s) => Math.exp(-((x - a) ** 2 + (y - b) ** 2 + (z - c) ** 2) / (s * s));
+  // Relevos: maçãs do rosto, arco das sobrancelhas, olhos fundos, boca e nuca
+  const rel = 0.005 * (g(0.62, -0.2, 0.74, 0.28) + g(-0.62, -0.2, 0.74, 0.28))
+    + 0.006 * g(0, 0.2, 0.97, 0.32)
+    - 0.0045 * (g(0.38, 0.09, 0.92, 0.15) + g(-0.38, 0.09, 0.92, 0.15))
+    + 0.004 * g(0, -0.45, 0.88, 0.3)
+    + 0.007 * g(0, 0.15, -0.95, 0.42);
+  // Mandíbula mais estreita que o crânio; queixo para a frente; a nuca entra em direção ao pescoço
+  const kx = 1 - (0.33 - 0.12 * mand) * baixo * baixo;
+  const kz = 1 - 0.1 * baixo * baixo - 0.3 * baixo * tras;
+  const queixo = z > 0 ? (0.014 + 0.004 * mand) * baixo * z : 0;
   return new THREE.Vector3(
-    x * (CRANIO.rx * escala * kx + folga),
-    CRANIO.y + y * (CRANIO.ry * escala + folga),
-    CRANIO.z + z * (CRANIO.rz * escala * kz + folga) + queixo,
+    x * (CRANIO.rx * escala * kx + folga + rel),
+    CRANIO.y + y * (CRANIO.ry * escala + folga + rel) - (z > 0 ? 0.012 * baixo * baixo * z : 0),
+    CRANIO.z + z * (CRANIO.rz * escala * kz + folga + rel) + queixo,
   );
 }
 const direcao = (x, y, z) => new THREE.Vector3(x, y, z).normalize();
+// Direção na cabeça pelo ângulo em volta (az, graus; + para a esquerda do jogador) e a partir do alto (pol)
+const dirAzPol = (az, pol) => new THREE.Vector3(
+  Math.sin(az * GRAUS) * Math.sin(pol * GRAUS), Math.cos(pol * GRAUS), Math.cos(az * GRAUS) * Math.sin(pol * GRAUS));
 
-// Pedaço de esfera com os vértices levados para a superfície da cabeça (com folga)
-function cascaCabeca(seg, aneis, phiIni, phiComp, thetaIni, thetaComp, folga, escala = 1) {
-  const g = new THREE.SphereGeometry(1, seg, aneis, phiIni, phiComp, thetaIni, thetaComp);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const q = pontoCabeca(p.getX(i), p.getY(i), p.getZ(i), folga, escala);
-    p.setXYZ(i, q.x, q.y, q.z);
-  }
-  g.computeVertexNormals();
-  return g;
-}
+// Pedaço de pele com textura do rosto em um ponto liso (orelhas, nariz, pescoço)
+const UV_PELE = [0.5, 0.012];
 
-function geoCabeca() {
-  const cabeca = cascaCabeca(12, 9, 0, Math.PI * 2, 0, Math.PI, 0);
-  const pescoco = new THREE.CylinderGeometry(0.05, 0.055, 0.16, 8, 1, true);
-  const nariz = new THREE.BoxGeometry(0.024, 0.038, 0.028);
-  const pNariz = pontoCabeca(0, -0.12, 0.99);
-  const orelha = new THREE.SphereGeometry(1, 5, 4);
-  const orelhaD = orelha.clone();
-  return fundir([
-    cabeca,
-    [pescoco, matriz(0, 0.06, -0.008)],
-    [nariz, matriz(0, pNariz.y, pNariz.z + 0.006, -0.35)],
-    [orelha, matriz(CRANIO.rx + 0.002, 0.182, -0.005, 0, 0, 0, 0.013, 0.028, 0.02)],
-    [orelhaD, matriz(-CRANIO.rx - 0.002, 0.182, -0.005, 0, 0, 0, 0.013, 0.028, 0.02)],
-  ]);
-}
+function geoCabeca(mand) {
+  return geo(`cabeca:${mand}`, () => {
+    const cranio = new THREE.SphereGeometry(1, 18, 12);
+    const p = cranio.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const q = pontoCabeca(p.getX(i), p.getY(i), p.getZ(i), 0, 1, mand);
+      p.setXYZ(i, q.x, q.y, q.z);
+    }
+    // Sombra embaixo do queixo e da mandíbula
+    comCor(cranio, (x, y, z) => 1 - 0.28 * suave((CRANIO.y - 0.075 - y) / 0.03));
 
-// Olhos e boca (escuros) e sobrancelhas, presos na superfície do rosto
-function geoOlhos() {
-  const partes = [];
-  for (const s of [-1, 1]) {
-    const d = direcao(0.36 * s, 0.09, 0.93);
-    const p = pontoCabeca(d.x, d.y, d.z, 0.001);
-    partes.push([new THREE.BoxGeometry(0.017, 0.011, 0.008), matriz(p.x, p.y, p.z, 0, 0.38 * s)]);
-  }
-  const b = pontoCabeca(0, -0.52, 0.85, 0.001);
-  partes.push([new THREE.BoxGeometry(0.03, 0.006, 0.006), matriz(b.x, b.y, b.z, 0.5)]);
-  return fundir(partes);
-}
+    const pescoco = uvFixo(tubo([
+      [-0.06, 0.071, 0.068, 0.071],
+      [0.02, 0.063, 0.062, 0.063],
+      [0.085, 0.057, 0.057, 0.060, 2, 0, -0.006],
+      [0.13, 0.052, 0.048, 0.056, 2, 0, -0.012],
+    ], 12, { cor: (x, y, z) => 0.82 + 0.18 * suave((0.0 - y) / 0.06) - 0.1 * Math.max(0, z / 0.06) * suave((y - 0.06) / 0.05) }).geometria, ...UV_PELE);
 
-function geoSobrancelhas() {
-  const partes = [];
-  for (const s of [-1, 1]) {
-    const d = direcao(0.37 * s, 0.27, 0.89);
-    const p = pontoCabeca(d.x, d.y, d.z, 0.002);
-    partes.push([new THREE.BoxGeometry(0.031, 0.008, 0.008), matriz(p.x, p.y, p.z, -0.2, 0.38 * s, -0.12 * s)]);
-  }
-  return fundir(partes);
+    // Nariz: cunha com ponta, asas e base
+    const sobre = (az, pol, f) => pontoCabeca(...dirAzPol(az, pol).toArray(), f, 1, mand);
+    const P = [
+      sobre(0, 82, 0.001),       // 0 raiz, entre os olhos
+      sobre(-6, 90, -0.001),     // 1 lado direito da ponte
+      sobre(6, 90, -0.001),      // 2 lado esquerdo da ponte
+      sobre(0, 104, 0.023),      // 3 ponta
+      sobre(-9.5, 106, 0.002),   // 4 asa direita
+      sobre(9.5, 106, 0.002),    // 5 asa esquerda
+      sobre(0, 109.5, 0.006),    // 6 base (entre as narinas)
+      sobre(-5, 108, 0.011),     // 7 narina direita
+      sobre(5, 108, 0.011),      // 8 narina esquerda
+    ];
+    const nariz = new THREE.BufferGeometry();
+    nariz.setAttribute('position', new THREE.Float32BufferAttribute(P.flatMap((v) => v.toArray()), 3));
+    nariz.setIndex([0, 1, 3, 0, 3, 2, 1, 4, 3, 2, 3, 5, 4, 7, 3, 5, 3, 8, 7, 6, 3, 8, 3, 6, 4, 6, 7, 5, 8, 6]);
+    // Cada triângulo virado para fora da cabeça
+    const ix = nariz.index.array;
+    const cc = new THREE.Vector3(0, CRANIO.y, CRANIO.z);
+    for (let k = 0; k < ix.length; k += 3) {
+      const a = P[ix[k]];
+      const b = P[ix[k + 1]];
+      const c = P[ix[k + 2]];
+      const nrm = b.clone().sub(a).cross(c.clone().sub(a));
+      if (nrm.dot(a.clone().add(b).add(c).divideScalar(3).sub(cc)) < 0) {
+        const t = ix[k + 1];
+        ix[k + 1] = ix[k + 2];
+        ix[k + 2] = t;
+      }
+    }
+    nariz.computeVertexNormals();
+    comCor(nariz, (x, y) => (y < P[6].y + 0.004 ? 0.78 : 1));
+    uvFixo(nariz, ...UV_PELE);
+
+    // Orelhas: achatadas, inclinadas para trás, com a concha mais escura
+    const orelhas = [];
+    for (const s of [-1, 1]) {
+      const o = new THREE.SphereGeometry(1, 6, 5);
+      comCor(o, (x, y) => 1 - 0.25 * Math.max(0, s * x) * (1 - Math.abs(y)));
+      uvFixo(o, ...UV_PELE);
+      orelhas.push([o, matriz(s * (CRANIO.rx + 0.003), CRANIO.y - 0.012, -0.01, 0, s * -0.3, -0.12 * s, 0.011, 0.031, 0.021)]);
+    }
+    cranio.computeVertexNormals();
+    suavizarCostura(cranio);
+    return fundir([cranio, pescoco, nariz, ...orelhas]);
+  });
 }
 
 // ---------- Cabelos ----------
-// A calota segue a linha do cabelo: 'frente' (testa), 'lado' (acima das orelhas) e 'tras' (nuca),
-// em graus a partir do alto da cabeça. 'topo' dá volume a mais em cima.
+// A linha do cabelo diz até onde ele vai: 'frente' (testa), 'lado' (acima das orelhas) e 'tras' (nuca),
+// em graus a partir do alto da cabeça.
 
 function limiteCabelo(linha, x, z) {
   const c = Math.cos(Math.atan2(x, z)); // 1 = frente, -1 = nuca
@@ -337,32 +834,95 @@ function relevo(x, y, z, freq) {
   return Math.max(0, 0.6 + a + 0.5 * b) / 2.1;
 }
 
-// opcoes: escala (tamanho), topo (volume a mais em cima), borda (graus em que a calota encosta na pele
-// perto da linha do cabelo), ondas { amplitude (m), frequencia }, seg e aneis (resolução)
-function calota(linha, folga, { escala = 1, topo = 0, borda = 16, ondas = null, seg = 12, aneis = 8 } = {}) {
-  const g = new THREE.SphereGeometry(1, seg, aneis);
-  const p = g.attributes.position;
-  const uv = g.attributes.uv;
-  for (let i = 0; i < p.count; i++) {
-    // Direção em volta do eixo (pelo u da textura, que vale também nos polos)
-    const phi = uv.getX(i) * Math.PI * 2;
+// Faixa de cabelo: passa na testa, logo acima da linha do cabelo, e desce atrás da cabeça
+function anguloFaixa(x, z) {
+  const c = Math.cos(Math.atan2(x, z));
+  return (76 - 26 * c) * GRAUS;
+}
+
+// Superfície de um corte de cabelo: ponto(phi, t, extra) com phi em volta (como a esfera do THREE) e
+// t = 0 no alto da cabeça até 1 na linha do cabelo (ou na ponta dos fios, se ele cai).
+//   base, topo, tras, lados, frenteTopo: volume (m) em cada região; borda: graus em que encosta na pele
+//   ondas: { amplitude, frequencia }; ruido(phi, ax, az): graus a mais na linha (franja, pontas)
+//   caida: { inicio (graus), comprimento (m), abre }: abaixo de 'inicio' os fios caem retos
+//   volumeExtra(x, y, z): m a mais em cada direção (topete, risca); faixa: aperta o cabelo onde passa a faixa
+function mapaCabelo({
+  linha, base = 0.012, topo = 0, tras = 0, lados = 0, frenteTopo = 0, borda = 12, ondas = null,
+  ruido = null, caida = null, volumeExtra = null, faixa = false,
+}) {
+  const thetaC = caida ? caida.inicio * GRAUS : Infinity;
+  return function ponto(phi, t, extra = 0) {
     const ax = -Math.cos(phi);
     const az = Math.sin(phi);
-    const theta = Math.acos(limitar(p.getY(i), -1, 1));
-    const lim = limiteCabelo(linha, ax, az);
-    const novo = (theta / Math.PI) * lim; // aperta a esfera inteira dentro da linha do cabelo
-    const x = ax * Math.sin(novo);
-    const z = az * Math.sin(novo);
-    const y = Math.cos(novo);
-    // Perto da linha do cabelo a calota encosta na pele (sem "borda de capacete")
-    const b = suave((lim - novo) / (borda * GRAUS));
-    let f = 0.0025 + (folga - 0.0025) * b + topo * Math.max(0, y) ** 2;
-    if (ondas) f += ondas.amplitude * relevo(x, y, z, ondas.frequencia) * (0.35 + 0.65 * b);
-    const q = pontoCabeca(x, y, z, f, misturar(1, escala, b));
-    p.setXYZ(i, q.x, q.y, q.z);
+    let lim = limiteCabelo(linha, ax, az);
+    if (ruido) lim += ruido(phi, ax, az) * GRAUS;
+    const theta = t * lim;
+    const th = Math.min(theta, thetaC);
+    const sx = ax * Math.sin(th);
+    const sy = Math.cos(th);
+    const sz = az * Math.sin(th);
+    let f = base + topo * Math.max(0, sy) ** 2 + tras * Math.max(0, -az) * Math.sin(th)
+      + lados * Math.abs(ax) * Math.sin(th) + frenteTopo * Math.max(0, az) * Math.max(0, sy);
+    if (volumeExtra) f += volumeExtra(sx, sy, sz);
+    let rel = ondas ? ondas.amplitude * relevo(sx, sy, sz, ondas.frequencia) : 0;
+    if (faixa) {
+      const perto = sino((th - anguloFaixa(sx, sz)) / GRAUS, 9);
+      f -= perto * base * 0.45;
+      rel *= 1 - perto;
+    }
+    f += rel;
+    if (lim <= thetaC + 1e-6) {
+      const b = suave((lim - theta) / (borda * GRAUS));
+      f = 0.0015 + (f - 0.0015) * b;
+    }
+    const q = pontoCabeca(sx, sy, sz, f + extra);
+    if (theta > thetaC) {
+      // Fios caindo: descem retos a partir de 'inicio', abrindo um pouco
+      const d = ((theta - thetaC) / (Math.PI / 2)) * caida.comprimento;
+      q.y -= d;
+      q.x += ax * d * (caida.abre ?? 0.1);
+      q.z += az * d * (caida.abre ?? 0.1) - (caida.paraTras ?? 0) * d;
+    }
+    return q;
+  };
+}
+
+// Casca do cabelo a partir do mapa: v da textura vai do alto (1) até a ponta (0), u dá a volta.
+// Sombreado: mais escuro na raiz da linha do cabelo e por baixo; tom varia de leve a cada mecha.
+function cascaCabelo(ponto, seg, aneis, { escurecePonta = 0.18 } = {}) {
+  const pos = [];
+  const uv = [];
+  const cores = [];
+  const idx = [];
+  for (let j = 0; j <= aneis; j++) {
+    const t = j / aneis;
+    for (let i = 0; i <= seg; i++) {
+      const phi = (i / seg) * Math.PI * 2;
+      const q = ponto(phi, t);
+      pos.push(q.x, q.y, q.z);
+      uv.push(i / seg, 1 - t);
+      const mecha = 0.9 + 0.2 * sorteioFixo(i % seg, j);
+      const k = (1 - escurecePonta * t * t) * mecha;
+      cores.push(k, k, k);
+    }
   }
-  g.computeVertexNormals();
-  return g;
+  const linha = seg + 1;
+  for (let j = 0; j < aneis; j++) {
+    for (let i = 0; i < seg; i++) {
+      const a = j * linha + i + 1;
+      const b = j * linha + i;
+      const c = (j + 1) * linha + i;
+      const d = (j + 1) * linha + i + 1;
+      if (j > 0) idx.push(a, b, d);
+      idx.push(b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cores, 3));
+  g.setIndex(idx);
+  return finalizar(g, new THREE.Vector3(0, CRANIO.y - 0.03, CRANIO.z));
 }
 
 // Bolinha de cachos: icosaedro com normais de esfera (parece redondo com só 20 triângulos)
@@ -375,65 +935,51 @@ function bolinha(raio) {
     v.fromBufferAttribute(p, i).normalize();
     n.setXYZ(i, v.x, v.y, v.z);
   }
+  comCor(g, (x, y, z) => 0.8 + 0.25 * (y / raio));
+  // Textura de cachos: cada bolinha pega um pedaço diferente
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 0.3, uv.getY(i) * 0.3);
   return g;
+}
+
+// Cachos espalhados pela superfície do cabelo (de t0 a t1), com tamanhos variados
+function cachosNoMapa(ponto, n, raio, { t0 = 0.15, t1 = 1, filtro = null, afundar = 0.35 } = {}) {
+  const partes = [];
+  const ouro = Math.PI * (3 - Math.sqrt(5));
+  for (let k = 0; k < n; k++) {
+    const t = t0 + (t1 - t0) * Math.sqrt((k + 0.5) / n);
+    const phi = (k * ouro) % (Math.PI * 2);
+    if (filtro && !filtro(phi, t)) continue;
+    const r = raio * (0.8 + 0.4 * sorteioFixo(k, 3));
+    const q = ponto(phi, t, r * (1 - afundar) - r);
+    partes.push([bolinha(r), matriz(q.x, q.y, q.z, k, k * 2, k * 3)]);
+  }
+  return partes;
 }
 
 // Crista do moicano: faixa estreita no meio da cabeça, da testa até a nuca, mais alta na frente
 function crista(folga, largura = 0.3, alturaMax = 0.04) {
-  const g = new THREE.SphereGeometry(1, 16, 4, -110 * GRAUS, 158 * GRAUS, Math.PI / 2 - largura, 2 * largura);
+  const g = new THREE.SphereGeometry(1, 18, 5, -110 * GRAUS, 158 * GRAUS, Math.PI / 2 - largura, 2 * largura);
   const p = g.attributes.position;
   const uv = g.attributes.uv;
   for (let i = 0; i < p.count; i++) {
-    // Esfera deitada: o "equador" vira o meio da cabeça (plano x = 0)
     const x = p.getY(i);
     const y = -p.getX(i);
     const z = p.getZ(i);
     const phi = (-110 + uv.getX(i) * 158) * GRAUS;  // 0 = alto da cabeça, + = para a testa
     const meio = 1 - (x / Math.sin(largura)) ** 2;   // 1 no meio da crista, 0 nas beiradas
-    const h = (0.012 + alturaMax * Math.exp(-((((phi / GRAUS) - 22) / 48) ** 2))) * Math.max(0, meio);
-    const q = pontoCabeca(x, y, z, folga + h);
+    const h = (0.008 + alturaMax * Math.exp(-((((phi / GRAUS) - 22) / 48) ** 2))) * Math.max(0, meio) ** 0.7;
+    const q = pontoCabeca(x, y, z, folga + h + 0.004 * relevo(x, y, z, 22) * meio);
     p.setXYZ(i, q.x, q.y, q.z);
+    uv.setXY(i, uv.getY(i) * 3, uv.getX(i));
   }
-  g.computeVertexNormals();
-  return g;
+  comCor(g, (x, y, z) => 0.85 + 0.15 * sorteioFixo(Math.round(z * 300), Math.round(x * 300)));
+  return finalizar(g, new THREE.Vector3(0, CRANIO.y, CRANIO.z));
 }
 
-// Pontos espalhados por igual na esfera (espiral de Fibonacci)
-function pontosEsfera(n) {
-  const r = [];
-  const ouro = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < n; i++) {
-    const y = 1 - (2 * (i + 0.5)) / n;
-    const raio = Math.sqrt(1 - y * y);
-    r.push(new THREE.Vector3(Math.cos(ouro * i) * raio, y, Math.sin(ouro * i) * raio));
-  }
-  return r;
-}
-
-// Cachos: bolinhas sobre a calota (e descendo pela nuca, se 'nuca' > 0 graus)
-function cachos(linha, folga, raio, n, { nuca = 0, evitarFaixa = false, escala = 1 } = {}) {
-  const partes = [];
-  for (const d of pontosEsfera(n)) {
-    const theta = Math.acos(d.y);
-    const lim = limiteCabelo(linha, d.x, d.z);
-    const atras = Math.max(0, -d.z / Math.hypot(d.x, d.z || 1e-6));
-    if (theta > lim - 6 * GRAUS + nuca * GRAUS * atras * atras) continue;
-    if (evitarFaixa && Math.abs(theta - anguloFaixa(d.x, d.z)) < 9 * GRAUS) continue;
-    const p = pontoCabeca(d.x, d.y, d.z, folga, escala);
-    const r = raio * (0.85 + 0.3 * Math.abs(Math.sin(d.x * 37 + d.z * 11)));
-    partes.push([bolinha(r), matriz(p.x, p.y, p.z, d.x * 3, d.y * 5, d.z * 2)]);
-  }
-  return partes;
-}
-
-// Faixa de cabelo: passa na testa, logo acima da linha do cabelo, e desce atrás da cabeça
-function anguloFaixa(x, z) {
-  const c = Math.cos(Math.atan2(x, z));
-  return (76 - 26 * c) * GRAUS;
-}
-function geoFaixa(folga) {
-  const seg = 20;
-  const aneis = [[-6, 0], [0, 0.006], [6, 0]]; // [graus em volta do meio da faixa, folga a mais]
+function geoFaixa(mapaAltura) {
+  const seg = 24;
+  const aneis = [[-6.5, 0], [0, 0.004], [6.5, 0]]; // [graus em volta do meio da faixa, folga a mais]
   const pos = [];
   const idx = [];
   for (const [dg, f] of aneis) {
@@ -442,11 +988,11 @@ function geoFaixa(folga) {
       const x = Math.sin(a);
       const z = Math.cos(a);
       const theta = anguloFaixa(x, z) + dg * GRAUS;
-      const q = pontoCabeca(x * Math.sin(theta), Math.cos(theta), z * Math.sin(theta), folga + f);
+      const q = pontoCabeca(x * Math.sin(theta), Math.cos(theta), z * Math.sin(theta), mapaAltura + f);
       pos.push(q.x, q.y, q.z);
     }
   }
-  for (let j = 0; j < 2; j++) {
+  for (let j = 0; j < aneis.length - 1; j++) {
     for (let i = 0; i < seg; i++) {
       const a = j * (seg + 1) + i;
       idx.push(a, a + seg + 1, a + 1, a + 1, a + seg + 1, a + seg + 2);
@@ -455,209 +1001,553 @@ function geoFaixa(folga) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
+  comCor(g, (x, y) => (y < CRANIO.y + 0.03 ? 0.85 : 1));
+  return finalizar(g, new THREE.Vector3(0, CRANIO.y, CRANIO.z));
 }
 
-// Folga (distância da pele) da superfície de cada estilo, para a faixa ficar por cima
-const FOLGA_CABELO = {
-  careca: 0, raspado: 0.004, curto: 0.012, topete: 0.01, moicano: 0.004,
-  medio: 0.02, longo: 0.015, cacheado: 0.014, volumoso: 0.032,
+// Cortes de cabelo. couro: o que é pintado na pele da cabeça (raiz embaixo do cabelo, ou o próprio
+// cabelo nos cortes raspados): linha, densidade (0 a 1) e borda (graus de esfumado).
+// Cortes com variações (cabelo.corte no elenco; sem ele, escolhe pelo jeito do jogador):
+//   curto: 'frente' (franja para a frente) | 'lado' (risca de lado) | 'arrepiado'
+//   medio: 'franja' (anos 80, franja cheia) | 'repartido' (anos 70, risca de lado e volume nos lados)
+const CORTES = { curto: ['frente', 'lado', 'arrepiado'], medio: ['franja', 'repartido'] };
+const ESTILOS_CABELO = {
+  careca: { couro: null },
+  raspado: { couro: { linha: { frente: 46, lado: 90, tras: 126 }, densidade: 0.66, borda: 3 } },
+  curto: { couro: { linha: { frente: 47, lado: 92, tras: 126 }, densidade: 0.8, borda: 4 } },
+  topete: { couro: { linha: { frente: 45, lado: 90, tras: 124 }, densidade: 0.72, borda: 3 } },
+  moicano: { couro: { linha: { frente: 47, lado: 88, tras: 122 }, densidade: 0.58, borda: 3 } },
+  medio: { couro: { linha: { frente: 50, lado: 100, tras: 132 }, densidade: 0.85, borda: 5 } },
+  longo: { couro: { linha: { frente: 48, lado: 100, tras: 132 }, densidade: 0.85, borda: 5 } },
+  cacheado: { couro: { linha: { frente: 45, lado: 96, tras: 128 }, densidade: 0.9, borda: 4 } },
+  cacheadoLongo: { couro: { linha: { frente: 46, lado: 100, tras: 132 }, densidade: 0.9, borda: 4 } },
+  volumoso: { couro: { linha: { frente: 48, lado: 100, tras: 132 }, densidade: 0.9, borda: 5 } },
 };
 
-// Partes do cabelo de cada estilo: [{ geometria, tom: 'cabelo' | 'raspado' }]
-function geoCabelo(estilo, comFaixa) {
-  return geo(`cabelo:${estilo}:${comFaixa ? 1 : 0}`, () => {
-    const f = FOLGA_CABELO[estilo] ?? 0.012;
+// Escolhe a variação do corte: a do elenco (cabelo.corte) ou uma fixa para cada jogador
+function corteDoCabelo(v) {
+  const opcoes = CORTES[v.cabelo.estilo];
+  if (!opcoes) return '';
+  if (opcoes.includes(v.cabelo.corte)) return v.cabelo.corte;
+  const chave = `${v.cabelo.cor}${v.pele}${v.altura}${v.porte}`;
+  let h = 7;
+  for (let i = 0; i < chave.length; i++) h = (h * 31 + chave.charCodeAt(i)) >>> 0;
+  return opcoes[h % opcoes.length];
+}
+
+// Volume (folga) do cabelo onde passa a faixa, para ela ficar por cima
+const FAIXA_FOLGA = { cacheadoLongo: 0.017, cacheado: 0.012, longo: 0.012, medio: 0.014, volumoso: 0.02, curto: 0.01 };
+
+// Partes do cabelo de cada estilo: [{ geometria, cachos }] (cachos: usa a textura de cachos)
+function geoCabelo(estilo, corte, comFaixa) {
+  return geo(`cabelo:${estilo}:${corte}:${comFaixa ? 1 : 0}`, () => {
     switch (estilo) {
       case 'careca':
-        return [];
       case 'raspado':
-        return [{ geometria: calota({ frente: 47, lado: 88, tras: 122 }, f), tom: 'raspado' }];
-      case 'curto':
-        return [{ geometria: calota({ frente: 45, lado: 90, tras: 124 }, f, { topo: 0.008 }), tom: 'cabelo' }];
-      case 'topete': {
-        // Lados curtos e volume em cima, penteado para cima na frente
-        const base = calota({ frente: 44, lado: 86, tras: 120 }, f, { topo: 0.016 });
-        const d = direcao(0, 0.74, 0.67);
-        const p = pontoCabeca(d.x, d.y, d.z, 0.014);
-        return [{
-          geometria: fundir([
-            base,
-            [new THREE.SphereGeometry(1, 9, 6), matriz(p.x, p.y + 0.008, p.z - 0.006, -0.85, 0, 0, 0.058, 0.03, 0.05)],
-          ]),
-          tom: 'cabelo',
-        }];
+        return []; // pintado na pele da cabeça
+      case 'curto': {
+        const linha = { frente: corte === 'frente' ? 50 : 45, lado: 92, tras: 124 };
+        const ponto = mapaCabelo({
+          linha, base: 0.011, topo: corte === 'arrepiado' ? 0.012 : 0.008, borda: 10,
+          frenteTopo: corte === 'frente' ? 0.007 : 0.004,
+          ondas: corte === 'arrepiado' ? { amplitude: 0.011, frequencia: 17 } : { amplitude: 0.003, frequencia: 14 },
+          ruido: corte === 'frente' ? (phi, ax, az) => Math.max(0, az) * 3.5 * Math.sin(phi * 26) : null,
+          // Risca do lado direito e volume penteado para a esquerda
+          volumeExtra: corte === 'lado'
+            ? (x, y, z) => 0.006 * Math.max(0, x + 0.2) * Math.max(0, y) - 0.006 * sino(x + 0.42, 0.07) * Math.max(0, y) * Math.max(0, z + 0.3)
+            : null,
+          faixa: comFaixa,
+        });
+        return [{ geometria: cascaCabelo(ponto, 18, 8) }];
       }
-      case 'moicano':
-        // Lados raspados e uma crista no meio, da testa até a nuca (mais alta na frente)
-        return [
-          { geometria: calota({ frente: 47, lado: 84, tras: 118 }, f), tom: 'raspado' },
-          { geometria: crista(f), tom: 'cabelo' },
-        ];
-      case 'medio':
-        // Anos 70/80: cobre as orelhas, franja na testa, desce na nuca (pontas soltas)
-        return [{
-          geometria: calota({ frente: 55, lado: 110, tras: 138 }, f, {
-            escala: 1.02, topo: 0.012, borda: 7, ondas: { amplitude: 0.006, frequencia: 9 }, seg: 14, aneis: 9,
-          }),
-          tom: 'cabelo',
-        }];
+      case 'topete': {
+        // Lados bem curtos e volume em cima, penteado para cima e para trás na frente
+        const ponto = mapaCabelo({
+          linha: { frente: 44, lado: 70, tras: 92 }, base: 0.008, topo: 0.026, borda: 14,
+          volumeExtra: (x, y, z) => 0.02 * Math.max(0, z) * sino(y - 0.75, 0.3) * sino(x, 0.55),
+          ondas: { amplitude: 0.004, frequencia: 12 },
+        });
+        return [{ geometria: cascaCabelo(ponto, 18, 8, { escurecePonta: 0.3 }) }];
+      }
+      case 'moicano': {
+        // Lados raspados (pintados) e a crista no meio, da testa até a nuca
+        return [{ geometria: crista(0.003) }];
+      }
+      case 'medio': {
+        // Anos 70/80: cobre metade das orelhas, desce na nuca, com franja ou risca de lado
+        const franja = corte === 'franja';
+        const ponto = mapaCabelo({
+          linha: franja ? { frente: 60, lado: 112, tras: 150 } : { frente: 50, lado: 116, tras: 156 },
+          base: 0.017, topo: 0.012, lados: franja ? 0.006 : 0.012, borda: 8,
+          ondas: { amplitude: 0.007, frequencia: franja ? 11 : 8 },
+          caida: { inicio: 100, comprimento: franja ? 0.05 : 0.07, abre: 0.25 },
+          ruido: (phi, ax, az) => (franja ? Math.max(0, az) * 4 * Math.sin(phi * 22) : 0)
+            + Math.max(0, -az) * 4 * Math.sin(phi * 13),
+          volumeExtra: franja ? null
+            : (x, y, z) => 0.008 * Math.max(0, x + 0.1) * Math.max(0, y) - 0.007 * sino(x + 0.38, 0.07) * Math.max(0, y) * Math.max(0, z + 0.2),
+          faixa: comFaixa,
+        });
+        return [{ geometria: cascaCabelo(ponto, 20, 10) }];
+      }
       case 'longo': {
-        // Comprido até os ombros, atrás das orelhas
-        const base = calota({ frente: 47, lado: 98, tras: 124 }, f, { topo: 0.008 });
-        const cortina = new THREE.CylinderGeometry(0.094, 0.112, 0.2, 12, 2, true, Math.PI - 1.75, 3.5);
-        const mechas = [];
-        for (const s of [-1, 1]) {
-          const d = direcao(0.93 * s, -0.05, 0.3);
-          const p = pontoCabeca(d.x, d.y, d.z, f);
-          mechas.push([new THREE.BoxGeometry(0.022, 0.13, 0.05), matriz(p.x, p.y - 0.045, p.z - 0.01, 0, 0, 0.1 * s)]);
-        }
-        return [{
-          geometria: fundir([base, [cortina, matriz(0, CRANIO.y - 0.1, CRANIO.z - 0.012, 0.12, 0, 0, 1, 1, 1.12)], ...mechas]),
-          tom: 'cabelo',
-        }];
+        // Comprido até os ombros, repartido no meio, atrás das orelhas
+        const ponto = mapaCabelo({
+          linha: { frente: 47, lado: 104, tras: 168 }, base: 0.013, topo: 0.006, lados: 0.004, borda: 8,
+          ondas: { amplitude: 0.004, frequencia: 9 },
+          caida: { inicio: 96, comprimento: 0.16, abre: 0.12, paraTras: 0.12 },
+          ruido: (phi, ax, az) => Math.max(0, -az + 0.3) * 6 * Math.sin(phi * 9),
+          volumeExtra: (x, y, z) => -0.006 * sino(x, 0.06) * Math.max(0, y) * Math.max(0, z + 0.2),
+          faixa: comFaixa,
+        });
+        return [{ geometria: cascaCabelo(ponto, 20, 11, { escurecePonta: 0.1 }) }];
       }
       case 'cacheado': {
-        // Cachos: calota com relevo e algumas bolinhas, descendo pela nuca
-        const linha = { frente: 44, lado: 98, tras: 132 };
-        return [{
-          geometria: fundir([
-            calota(linha, f, { borda: 8, ondas: { amplitude: 0.022, frequencia: 13 }, seg: 18, aneis: 11 }),
-            ...cachos(linha, f + 0.002, 0.024, 26, { nuca: 10, evitarFaixa: comFaixa }),
-          ]),
-          tom: 'cabelo',
-        }];
+        // Cachos curtos: casca com relevo e bolinhas na beirada e em cima
+        const ponto = mapaCabelo({
+          linha: { frente: 44, lado: 96, tras: 128 }, base: 0.016, topo: 0.01, borda: 7,
+          ondas: { amplitude: 0.018, frequencia: 13 }, faixa: comFaixa,
+          ruido: (phi) => 3 * Math.sin(phi * 17),
+        });
+        return [
+          { geometria: cascaCabelo(ponto, 18, 9, { escurecePonta: 0.25 }), cachos: true },
+          {
+            geometria: fundir(cachosNoMapa(ponto, 12, 0.022, {
+              t0: 0.25, afundar: 0.45,
+              filtro: comFaixa ? (phi, t) => Math.abs(t - 0.62) > 0.1 : null,
+            })),
+            cachos: true,
+          },
+        ];
       }
-      case 'volumoso':
-        // Volume grande e redondo (anos 70/80), com ondas
-        return [{
-          geometria: calota({ frente: 47, lado: 108, tras: 134 }, f, {
-            escala: 1.08, topo: 0.035, borda: 9, ondas: { amplitude: 0.03, frequencia: 9 }, seg: 18, aneis: 11,
-          }),
-          tom: 'cabelo',
-        }];
+      case 'cacheadoLongo': {
+        // Cachos grandes e compridos (descem pela nuca até os ombros), presos pela faixa na testa
+        const ponto = mapaCabelo({
+          linha: { frente: 47, lado: 116, tras: 166 }, base: 0.024, topo: 0.016, lados: 0.012, borda: 7,
+          ondas: { amplitude: 0.022, frequencia: 11 },
+          caida: { inicio: 96, comprimento: 0.13, abre: 0.38, paraTras: 0.05 },
+          ruido: (phi, ax, az) => Math.max(0, -az + 0.4) * 9 * Math.sin(phi * 11) + 2.5 * Math.sin(phi * 23),
+          faixa: comFaixa,
+        });
+        return [
+          { geometria: cascaCabelo(ponto, 20, 11, { escurecePonta: 0.22 }), cachos: true },
+          {
+            geometria: fundir(cachosNoMapa(ponto, 22, 0.028, {
+              t0: 0.55, afundar: 0.4,
+              filtro: (phi, t) => Math.sin(phi) < 0.35 && (!comFaixa || t > 0.62),
+            })),
+            cachos: true,
+          },
+        ];
+      }
+      case 'volumoso': {
+        // Volume grande e redondo (anos 70/80), cachos que descem até a nuca
+        const ponto = mapaCabelo({
+          linha: { frente: 50, lado: 112, tras: 146 }, base: 0.03, topo: 0.03, lados: 0.012, borda: 9,
+          ondas: { amplitude: 0.026, frequencia: 9 },
+          caida: { inicio: 102, comprimento: 0.05, abre: 0.4 },
+          ruido: (phi) => 3 * Math.sin(phi * 15),
+          faixa: comFaixa,
+        });
+        return [
+          { geometria: cascaCabelo(ponto, 20, 10, { escurecePonta: 0.28 }), cachos: true },
+          { geometria: fundir(cachosNoMapa(ponto, 10, 0.027, { t0: 0.6, afundar: 0.5 })), cachos: true },
+        ];
+      }
       default:
-        return geoCabelo('curto', comFaixa);
+        return geoCabelo('curto', 'frente', comFaixa);
     }
   });
 }
 
 // ---------- Barbas ----------
-function geoBarba(estilo) {
-  return geo(`barba:${estilo}`, () => {
-    const bigode = (largura, grosso) => {
-      const p = pontoCabeca(0, -0.37, 0.93, 0.004);
-      const partes = [[new THREE.BoxGeometry(largura, grosso, 0.016), matriz(p.x, p.y, p.z, 0.35)]];
-      for (const s of [-1, 1]) {
-        const d = direcao(0.3 * s, -0.5, 0.82);
-        const q = pontoCabeca(d.x, d.y, d.z, 0.004);
-        partes.push([new THREE.BoxGeometry(0.012, grosso * 1.8, 0.014), matriz(q.x, q.y, q.z, 0.4, 0.3 * s)]);
+// Onde cada barba cobre o rosto (0 a 1), por az (graus em volta, 0 = frente) e pol (graus do alto)
+function coberturaBarba(estilo, az, pol) {
+  const a = Math.abs(az);
+  const dentro = (v, a0, a1, s) => suave((v - a0) / s) * suave((a1 - v) / s);
+  const labios = dentro(a, -99, 15.5, 3) * dentro(pol, 116, 127, 2);
+  const bigode = dentro(a, -99, 21, 4) * dentro(pol, 107.5, 117.5, 2.5);
+  const cantos = dentro(a, 13, 27, 3) * dentro(pol, 110, 134, 4);
+  const queixo = dentro(a, -99, 30, 7) * dentro(pol, 126, 174, 5);
+  const linhaBochecha = 111 - 16 * limitar((a - 18) / 72, 0, 1);
+  const mandibula = dentro(a, 16, 88, 6) * dentro(pol, linhaBochecha, 174, 4);
+  switch (estilo) {
+    case 'cheia':
+    case 'rala':
+      return Math.max(bigode, cantos, queixo, mandibula) * (1 - labios);
+    case 'bigode':
+      // Bigodão anos 70: grosso, descendo nos cantos da boca
+      return Math.max(dentro(a, -99, 24, 4) * dentro(pol, 106, 118, 2.5), dentro(a, 15, 25, 3) * dentro(pol, 110, 126, 3)) * (1 - labios);
+    case 'cavanhaque':
+      return Math.max(bigode, cantos * 0.9, dentro(a, -99, 21, 5) * dentro(pol, 126, 162, 5)) * (1 - labios);
+    default:
+      return 0;
+  }
+}
+const ESPESSURA_BARBA = { cheia: 0.008, bigode: 0.0065, cavanhaque: 0.0065 };
+
+function geoBarba(estilo, mand) {
+  const esp = ESPESSURA_BARBA[estilo];
+  if (!esp) return null;
+  return geo(`barba:${estilo}:${mand}`, () => {
+    const segA = 16;
+    const segP = 9;
+    const pos = [];
+    const cores = [];
+    const uv = [];
+    const idx = [];
+    for (let j = 0; j <= segP; j++) {
+      const pol = 100 + (74 * j) / segP;
+      for (let i = 0; i <= segA; i++) {
+        const az = -96 + (192 * i) / segA;
+        const c = coberturaBarba(estilo, az, pol);
+        // Onde não há barba, a casca fica um pouco por dentro da pele (escondida)
+        const f = c > 0.02 ? esp * c ** 0.6 + 0.0005 : -0.003;
+        const q = pontoCabeca(...dirAzPol(az, pol).toArray(), f, 1, mand);
+        pos.push(q.x, q.y, q.z);
+        uv.push(i / segA * 2, j / segP);
+        const k = 0.8 + 0.2 * c + 0.1 * sorteioFixo(i, j);
+        cores.push(k, k, k);
       }
-      return partes;
-    };
-    switch (estilo) {
-      case 'cheia':
-        return fundir([
-          cascaCabeca(12, 5, 0.04 * Math.PI, 0.92 * Math.PI, 96 * GRAUS, 74 * GRAUS, 0.008),
-          ...bigode(0.058, 0.014),
-        ]);
-      case 'rala':
-        return cascaCabeca(12, 5, 0.06 * Math.PI, 0.88 * Math.PI, 100 * GRAUS, 70 * GRAUS, 0.003);
-      case 'bigode':
-        return fundir(bigode(0.066, 0.018));
-      case 'cavanhaque': {
-        const q = pontoCabeca(0, -0.84, 0.54, 0.006);
-        return fundir([
-          ...bigode(0.05, 0.012),
-          [new THREE.SphereGeometry(1, 7, 5), matriz(q.x, q.y, q.z, 0.5, 0, 0, 0.022, 0.026, 0.016)],
-        ]);
-      }
-      default:
-        return null;
     }
+    for (let j = 0; j < segP; j++) {
+      for (let i = 0; i < segA; i++) {
+        const a = j * (segA + 1) + i;
+        idx.push(a, a + 1, a + segA + 1, a + 1, a + segA + 2, a + segA + 1);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(cores, 3));
+    g.setIndex(idx);
+    return finalizar(g, new THREE.Vector3(0, CRANIO.y, CRANIO.z));
   });
 }
 
-// ---------- Braços, pernas e pés ----------
-const PERFIS = {
-  // (partes de pele escondidas dentro da manga, do calção ou do meião não são desenhadas)
-  manga: [[0, -0.155], [0.054, -0.152], [0.057, -0.12], [0.06, -0.04], [0.054, 0.04], [0.032, 0.07], [0, 0.078]],
-  mangaLonga: [[0, -0.3], [0.046, -0.296], [0.05, -0.2], [0.058, -0.08], [0.054, 0.04], [0.032, 0.07], [0, 0.078]],
-  braco: [[0, -0.305], [0.034, -0.3], [0.038, -0.27], [0.044, -0.19], [0.046, -0.11]],
-  antebraco: [[0, -0.255], [0.026, -0.252], [0.029, -0.21], [0.039, -0.09], [0.04, -0.03], [0.034, 0.025]],
-  antebracoManga: [[0, -0.25], [0.04, -0.246], [0.04, -0.2], [0.047, -0.09], [0.048, -0.03], [0.042, 0.025]],
-  coxa: [[0, -0.46], [0.045, -0.452], [0.051, -0.4], [0.063, -0.3], [0.072, -0.18], [0.075, -0.13]],
-  pernaCalcao: [[0, -0.205], [0.086, -0.2], [0.09, -0.1], [0.088, 0], [0.072, 0.06]],
-  canela: [[0.047, -0.11], [0.049, -0.06], [0.048, 0], [0.04, 0.03], [0, 0.045]],
-  meiao: [[0, -0.432], [0.036, -0.426], [0.039, -0.36], [0.053, -0.24], [0.058, -0.15], [0.054, -0.075]],
-};
-
-function geoBota() {
-  const g = new THREE.SphereGeometry(1, 8, 5);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    let x = p.getX(i) * 0.05;
-    let y = p.getY(i) * 0.045;
-    const z = p.getZ(i) * 0.135;
-    if (z > 0) {
-      const k = z / 0.135;
-      x *= 1 - 0.28 * k * k; // bico mais fino
-      y -= 0.012 * k * (y > 0 ? 1 : 0); // e mais baixo
-    }
-    y = Math.max(y, -0.04); // sola reta
-    p.setXYZ(i, x, y - 0.03, z + 0.065);
-  }
-  g.computeVertexNormals();
-  return g;
-}
-
-function geoMao() {
-  const palma = new THREE.SphereGeometry(1, 6, 5);
-  const dedao = new THREE.SphereGeometry(1, 4, 3);
-  return fundir([
-    [palma, matriz(0, -MAO_CENTRO, 0.005, 0, 0, 0, 0.02, 0.062, 0.042)],
-    [dedao, matriz(0.012, -0.045, 0.035, 0.6, 0, 0, 0.012, 0.03, 0.013)],
-  ]);
-}
-
-function geoLuva() {
-  const palma = new THREE.SphereGeometry(1, 7, 5);
-  const punho = new THREE.CylinderGeometry(0.042, 0.04, 0.05, 7, 1, true);
-  const dedao = new THREE.SphereGeometry(1, 5, 3);
-  return fundir([
-    [palma, matriz(0, -0.075, 0.008, 0, 0, 0, 0.03, 0.08, 0.058)],
-    [punho, matriz(0, -0.01, 0)],
-    [dedao, matriz(0.018, -0.05, 0.05, 0.6, 0, 0, 0.018, 0.038, 0.018)],
-  ]);
-}
-
 // ---------- Texturas (desenhadas num canvas) ----------
-const temDocumento = typeof document !== 'undefined';
 
-function novaTextura(canvas) {
-  const t = new THREE.CanvasTexture(canvas);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
+// Fios de cabelo (cinza, multiplica a cor do cabelo): u dá a volta, v vai da raiz à ponta
+function texturaFios() {
+  return textura('fios', () => {
+    const [canvas, ctx] = novoCanvas(128, 128);
+    ctx.fillStyle = 'rgb(214,214,214)';
+    ctx.fillRect(0, 0, 128, 128);
+    let s = 1;
+    const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    for (let k = 0; k < 260; k++) {
+      const x0 = r() * 128;
+      const tom = 120 + r() * 135;
+      ctx.strokeStyle = `rgba(${tom},${tom},${tom},0.55)`;
+      ctx.lineWidth = 0.7 + r() * 1.6;
+      ctx.beginPath();
+      const fase = r() * 6;
+      for (let y = -4; y <= 132; y += 8) {
+        const x = x0 + 2.2 * Math.sin(y * 0.07 + fase);
+        for (const dx of [-128, 0, 128]) {
+          if (y === -4) ctx.moveTo(x + dx, y);
+        }
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    const t = novaTextura(canvas, true);
+    t.repeat.set(5, 1);
+    return t;
+  });
 }
 
-function claro(cor) {
-  const c = new THREE.Color(cor);
-  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.35;
+// Cachos: bolinhas claras no meio e escuras na volta
+function texturaCachos() {
+  return textura('cachos', () => {
+    const [canvas, ctx] = novoCanvas(128, 128);
+    ctx.fillStyle = 'rgb(150,150,150)';
+    ctx.fillRect(0, 0, 128, 128);
+    let s = 3;
+    const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    for (let k = 0; k < 170; k++) {
+      const x = r() * 128;
+      const y = r() * 128;
+      const raio = 5 + r() * 7;
+      for (const dx of [-128, 0, 128]) {
+        for (const dy of [-128, 0, 128]) {
+          const g = ctx.createRadialGradient(x + dx - raio * 0.3, y + dy - raio * 0.3, 0, x + dx, y + dy, raio);
+          g.addColorStop(0, 'rgba(255,255,255,0.95)');
+          g.addColorStop(0.55, 'rgba(200,200,200,0.7)');
+          g.addColorStop(1, 'rgba(70,70,70,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(x + dx, y + dy, raio, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    const t = novaTextura(canvas, true);
+    t.repeat.set(4, 2);
+    return t;
+  });
+}
+
+// Rosto e couro cabeludo: pele com variação de tom, olhos, sobrancelhas, boca, barba rala e a raiz do
+// cabelo (ou o cabelo raspado) pintados. A textura dá a volta na cabeça como a esfera do THREE.
+const ROSTO_W = 512;
+const ROSTO_H = 256;
+const noRosto = (az, pol) => [(0.25 + az / 360) * ROSTO_W, (pol / 180) * ROSTO_H];
+
+function texturaRosto(r) {
+  const W = ROSTO_W;
+  const H = ROSTO_H;
+  const [canvas, ctx] = novoCanvas(W, H);
+  const pele = rgb255(r.pele);
+  const cabelo = rgb255(r.cabelo);
+  const barba = rgb255(r.barba);
+  const img = ctx.createImageData(W, H);
+  const dados = img.data;
+  const couro = r.couro;
+  for (let py = 0; py < H; py++) {
+    const pol = ((py + 0.5) / H) * 180;
+    const th = pol * GRAUS;
+    for (let px = 0; px < W; px++) {
+      const u = (px + 0.5) / W;
+      const phi = u * Math.PI * 2;
+      const ax = -Math.cos(phi);
+      const az = Math.sin(phi);
+      let azg = (u - 0.25) * 360;
+      if (azg > 180) azg -= 360;
+      const ruido = sorteioFixo(px, py);
+      // Pele: leve variação de tom; bochechas, nariz e orelhas um pouco mais rosados
+      const rosado = 0.07 * sino(Math.abs(azg) - 32, 14) * sino(pol - 100, 10) + 0.04 * sino(azg, 9) * sino(pol - 102, 8);
+      let c0 = pele[0] * (1 + 0.025 * (ruido - 0.5)) * (1 + rosado * 0.6);
+      let c1 = pele[1] * (1 + 0.025 * (ruido - 0.5)) * (1 - rosado * 0.25);
+      let c2 = pele[2] * (1 + 0.025 * (ruido - 0.5)) * (1 - rosado * 0.3);
+      // Couro cabeludo: raiz do cabelo embaixo da casca ou o próprio cabelo raspado (pontinhos)
+      if (couro) {
+        let lim = limiteCabelo(couro.linha, ax, az) / GRAUS;
+        // Costeletas na frente das orelhas
+        const cost = sino(Math.abs(azg) - 80, 6) * (pol < 104 ? 1 : 0) * (couro.costeleta ?? 1);
+        lim += cost * 14;
+        const dentro = suave((lim - pol + 1.5) / couro.borda);
+        const k = dentro * couro.densidade * (couro.pontos ? 0.55 + 0.45 * sorteioFixo(px * 3.1, py * 1.7) : 1);
+        c0 = misturar(c0, cabelo[0], k);
+        c1 = misturar(c1, cabelo[1], k);
+        c2 = misturar(c2, cabelo[2], k);
+      }
+      // Barba: rala (pontinhos) ou a base embaixo da barba cheia
+      if (r.estiloBarba) {
+        const cob = coberturaBarba(r.estiloBarba, azg, pol);
+        if (cob > 0) {
+          const k = cob * (r.estiloBarba === 'rala' ? 0.42 * (0.45 + 0.55 * sorteioFixo(px * 1.3, py * 2.9)) : 0.85);
+          c0 = misturar(c0, barba[0], k);
+          c1 = misturar(c1, barba[1], k);
+          c2 = misturar(c2, barba[2], k);
+        }
+      }
+      const i = (py * W + px) * 4;
+      dados[i] = limitar(c0, 0, 255);
+      dados[i + 1] = limitar(c1, 0, 255);
+      dados[i + 2] = limitar(c2, 0, 255);
+      dados[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Olhos: sombra da órbita, branco, íris, pupila, brilho e pálpebra de cima
+  const escura = pele.map((c) => Math.round(c * 0.45));
+  for (const s of [-1, 1]) {
+    const [x, y] = noRosto(s * 21.5, 86);
+    let g = ctx.createRadialGradient(x, y - 2, 2, x, y - 2, 26);
+    g.addColorStop(0, css(escura, 0.32));
+    g.addColorStop(1, css(escura, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(x, y - 2, 28, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Branco do olho (amêndoa)
+    ctx.fillStyle = '#ece5da';
+    ctx.beginPath();
+    ctx.moveTo(x - 14, y + 0.5);
+    ctx.quadraticCurveTo(x - 2 * s, y - 8, x + 14, y - 0.5 * s);
+    ctx.quadraticCurveTo(x + 1 * s, y + 7, x - 14, y + 0.5);
+    ctx.fill();
+    // Íris e pupila (olhando para a frente)
+    const ix = x + s * 0.5;
+    ctx.fillStyle = r.olhos;
+    ctx.beginPath();
+    ctx.arc(ix, y, 5.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0d0907';
+    ctx.beginPath();
+    ctx.arc(ix, y, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath();
+    ctx.arc(ix - 1.6, y - 1.8, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    // Pálpebra de cima (cílios) e a dobra acima dela
+    ctx.strokeStyle = '#1e140f';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - 14, y + 1);
+    ctx.quadraticCurveTo(x - 2 * s, y - 9, x + 15, y - 1);
+    ctx.stroke();
+    ctx.strokeStyle = css(escura, 0.35);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x - 11, y - 5);
+    ctx.quadraticCurveTo(x - 2 * s, y - 13, x + 12, y - 5);
+    ctx.stroke();
+    ctx.strokeStyle = css(escura, 0.3);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x - 11, y + 3);
+    ctx.quadraticCurveTo(x, y + 7, x + 12, y + 2);
+    ctx.stroke();
+    // Sobrancelha: grossa por dentro, fina por fora, com um arco
+    const [x0, y0] = noRosto(s * 8, 76.5);
+    const [x1, y1] = noRosto(s * 26, 73.5);
+    const [x2, y2] = noRosto(s * 38, 77.5);
+    ctx.fillStyle = r.sobrancelha;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0 + 4.5 * r.grossura);
+    ctx.quadraticCurveTo(x1, y1 + 3 * r.grossura, x2, y2 + 1);
+    ctx.quadraticCurveTo(x1, y1 - 3.5 * r.grossura, x0, y0 - 3.5 * r.grossura);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Boca: lábio de cima mais escuro, de baixo com brilho, e a linha da boca
+  const labio = pele.map((c, i) => Math.round(c * 0.78 + [150, 60, 55][i] * 0.22 * (pele[0] > 150 ? 1 : 0.5)));
+  const [bx, by] = noRosto(0, 121);
+  ctx.fillStyle = css(labio, 0.95);
+  ctx.beginPath();
+  ctx.moveTo(bx - 21, by);
+  ctx.quadraticCurveTo(bx - 9, by - 7, bx, by - 4);
+  ctx.quadraticCurveTo(bx + 9, by - 7, bx + 21, by);
+  ctx.quadraticCurveTo(bx, by + 1.5, bx - 21, by);
+  ctx.fill();
+  ctx.fillStyle = css(labio.map((c) => Math.min(255, c * 1.06)), 0.9);
+  ctx.beginPath();
+  ctx.moveTo(bx - 19, by + 0.5);
+  ctx.quadraticCurveTo(bx, by + 10, bx + 19, by + 0.5);
+  ctx.quadraticCurveTo(bx, by + 2, bx - 19, by + 0.5);
+  ctx.fill();
+  ctx.strokeStyle = css(pele.map((c) => c * 0.3), 0.85);
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(bx - 21, by);
+  ctx.quadraticCurveTo(bx, by + 2.2, bx + 21, by);
+  ctx.stroke();
+  // Sombra embaixo do lábio de baixo e no sulco acima da boca
+  let g = ctx.createRadialGradient(bx, by + 13, 1, bx, by + 13, 16);
+  g.addColorStop(0, css(escura, 0.22));
+  g.addColorStop(1, css(escura, 0));
+  ctx.fillStyle = g;
+  ctx.fillRect(bx - 20, by + 2, 40, 24);
+  g = ctx.createLinearGradient(bx, by - 18, bx, by - 5);
+  g.addColorStop(0, css(escura, 0));
+  g.addColorStop(1, css(escura, 0.12));
+  ctx.fillStyle = g;
+  ctx.fillRect(bx - 4, by - 18, 8, 13);
+  // Bem embaixo (dentro do pescoço): pele lisa, usada pelo pescoço, nariz e orelhas
+  ctx.fillStyle = css(pele);
+  ctx.fillRect(0, H - 8, W, 8);
+  return novaTextura(canvas);
+}
+
+// ---------- Camisa (textura com padrão, gola, escudo, número e nome) ----------
+
+const CAMISA_W = 512;
+const CAMISA_H = 256;
+const ALTURA_FAIXA = [0.205, 0.315];  // faixa do peito (São Paulo)
+const SASH = { a: [-0.175, 0.47], b: [0.17, -0.085], largura: 0.092 }; // faixa diagonal (Vasco)
+const V_PEITO = { ombro: 0.15, topo: 0.475, ponta: 0.2, largura: 0.07 };
+
+// Cor do padrão num ponto da camisa: u (volta), y (altura), x e z (posição na superfície).
+// px = tamanho do pixel em metros (para a borda das faixas sair lisa). Devolve [cor, cobertura 0 a 1].
+function padraoNoPonto(uni, u, y, x, z, px) {
+  const borda = (d) => limitar(0.5 + d / px, 0, 1); // d > 0 = dentro da faixa (m)
+  switch (uni.padrao) {
+    case 'listras': {
+      // 16 faixas na volta (8 listras), uma listra bem no meio da frente e das costas
+      const n = 16;
+      const p = (u - 0.25) * n + 0.5;
+      const f = p - Math.floor(p);
+      const listra = Math.floor(p) % 2 === 0;
+      const d = Math.min(f, 1 - f) / n; // distância até a borda, em u
+      const pxU = px / 1.0; // ~1 m de volta
+      const k = limitar(0.5 + d / pxU, 0, 1);
+      return [uni.cores[0], listra ? k : 1 - k];
+    }
+    case 'aros': {
+      const h = 0.058;
+      const p = (y + 0.1) / h;
+      const f = p - Math.floor(p);
+      const aro = Math.floor(p) % 2 === 1;
+      const d = Math.min(f, 1 - f) * h;
+      const k = borda(d);
+      return [uni.cores[0], aro ? k : 1 - k];
+    }
+    case 'faixa': {
+      const [y0, y1] = ALTURA_FAIXA;
+      const n = uni.cores.length;
+      if (y < y0 - px || y > y1 + px) return [null, 0];
+      const p = limitar((y1 - y) / ((y1 - y0) / n), 0, n - 1e-6);
+      const i = Math.floor(p);
+      const d = Math.min(y - y0, y1 - y);
+      return [uni.cores[i], borda(d)];
+    }
+    case 'diagonal': {
+      const [ax, ay] = SASH.a;
+      const [bx, by] = SASH.b;
+      const lx = bx - ax;
+      const ly = by - ay;
+      const len = Math.hypot(lx, ly);
+      const dist = Math.abs(lx * (y - ay) - ly * (x - ax)) / len;
+      return [uni.cores[0], borda(SASH.largura / 2 - dist)];
+    }
+    case 'v': {
+      const { ombro, topo, ponta, largura } = V_PEITO;
+      let melhor = Infinity;
+      for (const s of [-1, 1]) {
+        // Segmento do ombro até a ponta do V (na frente e atrás, pelo x e y)
+        const ax = s * ombro;
+        const lx = -ax;
+        const ly = ponta - topo;
+        const len2 = lx * lx + ly * ly;
+        const t = limitar(((x - ax) * lx + (y - topo) * ly) / len2, 0, 1);
+        melhor = Math.min(melhor, Math.hypot(x - (ax + lx * t), y - (topo + ly * t)));
+      }
+      return [uni.cores[0], borda(largura / 2 - melhor)];
+    }
+    default:
+      return [null, 0];
+  }
+}
+
+// Cores que aparecem atrás de um ponto da camisa (para decidir o contorno do número)
+function coresAtras(uni, y0, y1, costas) {
+  const lista = [uni.camisa];
+  if (uni.padrao === 'listras' || uni.padrao === 'aros') lista.push(uni.cores[0]);
+  if (uni.padrao === 'faixa' && y1 > ALTURA_FAIXA[0] && y0 < ALTURA_FAIXA[1]) lista.push(...uni.cores);
+  if (uni.padrao === 'diagonal') lista.push(uni.cores[0]);
+  if (uni.padrao === 'v' && (costas ? y1 > V_PEITO.ponta : true)) lista.push(uni.cores[0]);
+  return lista;
+}
+// Contorno do texto quando ele não se destaca de alguma cor do fundo
+function contornoPara(cor, fundos, minimo = 3.2) {
+  const pior = Math.min(...fundos.map((f) => contraste(cor, f)));
+  if (pior >= minimo) return null;
+  return contraste(cor, '#111111') >= contraste(cor, '#ffffff') ? '#111111' : '#ffffff';
 }
 
 // Texto com tamanho físico na camisa (altura em m), centrado em (u, y); comprime na largura se precisar
-function escreverNaCamisa(ctx, texto, { u, y, altura, cor, contorno, larguraMax, fonte }) {
+function escreverNaCamisa(ctx, texto, { u, y, altura, cor, contorno, grossuraContorno = 0.12, larguraMax, fonte }) {
   const W = ctx.canvas.width;
   const H = ctx.canvas.height;
-  const v = camisaBase.v;
+  const v = camisaBase.vDeY;
   const topo = (1 - v(y + altura / 2)) * H;
   const baixo = (1 - v(y - altura / 2)) * H;
   const alturaPx = baixo - topo;
-  // Largura da camisa nesta altura (para a letra não sair esticada na volta do tronco)
-  const w = ANEIS_CAMISA.reduce((m, a) => (Math.abs(a[0] - y) < Math.abs(m[0] - y) ? a : m))[1];
-  const pxPorMetroX = W / (2 * Math.PI * w);
+  const pxPorMetroX = W / camisaBase.perimetro(y);
   const pxPorMetroY = alturaPx / altura;
   ctx.save();
   ctx.font = `${fonte} ${Math.round(alturaPx / 0.72)}px "Arial Black", "Helvetica Neue", Arial, sans-serif`;
@@ -671,7 +1561,7 @@ function escreverNaCamisa(ctx, texto, { u, y, altura, cor, contorno, larguraMax,
   ctx.scale(sx, 1);
   if (contorno) {
     ctx.lineJoin = 'round';
-    ctx.lineWidth = Math.max(3, alturaPx * 0.12);
+    ctx.lineWidth = Math.max(2.5, alturaPx * grossuraContorno) / Math.min(1, sx);
     ctx.strokeStyle = contorno;
     ctx.strokeText(texto, 0, 0);
   }
@@ -681,47 +1571,89 @@ function escreverNaCamisa(ctx, texto, { u, y, altura, cor, contorno, larguraMax,
 }
 
 function texturaCamisa(uni, numero, nome) {
-  const W = 512;
-  const H = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  const v = camisaBase.v;
-  ctx.fillStyle = uni.camisa;
-  ctx.fillRect(0, 0, W, H);
-  if (uni.listras) {
-    // 16 listras na volta: uma listra escura bem no meio das costas e no meio da frente
-    ctx.fillStyle = uni.listras;
-    for (let k = 0; k < 8; k++) {
-      const x = (384 - 16 + 64 * k) % W;
-      ctx.fillRect(x, 0, 32, H);
-      if (x + 32 > W) ctx.fillRect(x - W, 0, 32, H);
+  const W = CAMISA_W;
+  const H = CAMISA_H;
+  const [canvas, ctx] = novoCanvas(W, H);
+  const base = rgb255(uni.camisa);
+  const img = ctx.createImageData(W, H);
+  const dados = img.data;
+  const pxMetros = 1.0 / W;
+  const cacheCor = new Map();
+  const corDe = (c) => {
+    let r = cacheCor.get(c);
+    if (!r) cacheCor.set(c, (r = rgb255(c)));
+    return r;
+  };
+  for (let py = 0; py < H; py++) {
+    const v = 1 - (py + 0.5) / H;
+    const anel = camisaBase.anelNoV(v);
+    const pts = pontosAnel(anel, 128);
+    for (let px = 0; px < W; px++) {
+      const u = (px + 0.5) / W;
+      const fi = u * 128;
+      const i0 = Math.min(127, Math.floor(fi));
+      const f = fi - i0;
+      const x = misturar(pts[i0][0], pts[i0 + 1][0], f);
+      const z = misturar(pts[i0][1], pts[i0 + 1][1], f);
+      let c = base;
+      if (uni.padrao !== 'liso') {
+        const [cor, k] = padraoNoPonto(uni, u, anel.y, x, z, pxMetros);
+        if (cor && k > 0) {
+          const p = corDe(cor);
+          c = [misturar(c[0], p[0], k), misturar(c[1], p[1], k), misturar(c[2], p[2], k)];
+        }
+      }
+      // Tecido: tramado leve e dobras suaves perto da cintura e embaixo dos braços
+      const trama = 1 + 0.035 * (sorteioFixo(px, py) - 0.5) + 0.012 * ((px + py) % 2);
+      const dobra = 1 - 0.05 * sino(anel.y - 0.02, 0.07) * (0.5 + 0.5 * Math.sin(u * 40 + anel.y * 30))
+        - 0.04 * sino(anel.y - 0.32, 0.06) * Math.max(0, Math.abs(x) / 0.18 - 0.7) * 3;
+      const k = trama * dobra;
+      const i = (py * W + px) * 4;
+      dados[i] = limitar(c[0] * k, 0, 255);
+      dados[i + 1] = limitar(c[1] * k, 0, 255);
+      dados[i + 2] = limitar(c[2] * k, 0, 255);
+      dados[i + 3] = 255;
     }
   }
-  // Barra e gola
+  ctx.putImageData(img, 0, 0);
+  const v = camisaBase.vDeY;
+
+  // Gola redonda com o V na frente; com contorno fino se ela some no padrão
   const yGola = (1 - v(0.462)) * H;
+  const fundosGola = [uni.camisa, ...(uni.padrao === 'liso' ? [] : uni.cores)];
+  const golaSome = Math.min(...fundosGola.map((f) => contraste(uni.gola, f))) < 1.4;
   ctx.fillStyle = uni.gola;
   ctx.fillRect(0, 0, W, yGola);
-  // Gola em V na frente
-  ctx.strokeStyle = uni.gola;
-  ctx.lineWidth = 7;
   ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(128 - 22, yGola - 2);
-  ctx.lineTo(128, (1 - v(0.395)) * H);
-  ctx.lineTo(128 + 22, yGola - 2);
-  ctx.stroke();
-  // Punho da barra (faixa fina embaixo)
+  const yV = (1 - v(0.405)) * H;
+  const desenharV = (largura) => {
+    ctx.lineWidth = largura;
+    ctx.beginPath();
+    ctx.moveTo(128 - 24, yGola - 2);
+    ctx.lineTo(128, yV);
+    ctx.lineTo(128 + 24, yGola - 2);
+    ctx.stroke();
+  };
+  if (golaSome) {
+    const linha = claro(uni.gola) ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.75)';
+    ctx.fillStyle = linha;
+    ctx.fillRect(0, yGola, W, 1.5);
+    ctx.strokeStyle = linha;
+    desenharV(10);
+  }
+  ctx.strokeStyle = uni.gola;
+  desenharV(7);
+  // Barra (faixa fina embaixo)
   ctx.fillStyle = uni.gola;
-  ctx.fillRect(0, (1 - v(-0.045)) * H, W, 3);
+  ctx.globalAlpha = 0.85;
+  ctx.fillRect(0, (1 - v(-0.088)) * H, W, 3);
+  ctx.globalAlpha = 1;
 
-  // Número claro ganha contorno escuro (lê bem em cima das listras)
-  const contorno = claro(uni.numero) ? 'rgba(10,10,10,0.9)' : null;
-  // Escudo genérico no peito esquerdo (lado +x = u > 0,25)
+  // Escudo genérico no peito esquerdo (lado +x, u > 0,25)
   const yEscudo = (1 - v(0.33)) * H;
-  const xEscudo = 128 + 40;
-  ctx.fillStyle = uni.gola === uni.camisa ? '#ffffff' : uni.gola;
+  const xEscudo = 128 + 42;
+  const corEscudo = distanciaCor(uni.gola, uni.camisa) > 60 ? uni.gola : (claro(uni.camisa) ? '#1b1b1b' : '#f2f2f2');
+  ctx.fillStyle = corEscudo;
   ctx.beginPath();
   ctx.moveTo(xEscudo - 9, yEscudo - 11);
   ctx.lineTo(xEscudo + 9, yEscudo - 11);
@@ -730,91 +1662,170 @@ function texturaCamisa(uni, numero, nome) {
   ctx.lineTo(xEscudo - 9, yEscudo + 2);
   ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = claro(ctx.fillStyle) ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.8)';
+  ctx.strokeStyle = claro(corEscudo) ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.85)';
   ctx.lineWidth = 2;
   ctx.stroke();
 
   if (numero !== undefined && numero !== null && numero !== '') {
     const n = String(numero);
     // Costas: número grande; frente: pequeno no peito direito
+    const contornoCostas = contornoPara(uni.numero, coresAtras(uni, 0.09, 0.31, true));
     escreverNaCamisa(ctx, n, {
-      u: 0.75, y: 0.2, altura: 0.24, cor: uni.numero, contorno, larguraMax: 0.3, fonte: '900',
+      u: 0.75, y: 0.2, altura: 0.22, cor: uni.numero, contorno: contornoCostas, larguraMax: 0.3, fonte: '900',
     });
+    const contornoFrente = contornoPara(uni.numero, coresAtras(uni, 0.29, 0.37, false));
     escreverNaCamisa(ctx, n, {
-      u: 0.25 - 40 / W, y: 0.33, altura: 0.075, cor: uni.numero, contorno, larguraMax: 0.1, fonte: '900',
+      u: 0.25 - 42 / W, y: 0.33, altura: 0.075, cor: uni.numero, contorno: contornoFrente, larguraMax: 0.1, fonte: '900',
     });
   }
   if (nome) {
+    const contornoNome = contornoPara(uni.numero, coresAtras(uni, 0.35, 0.4, true), 4.5);
     escreverNaCamisa(ctx, String(nome).toUpperCase(), {
-      u: 0.75, y: 0.37, altura: 0.042, cor: uni.numero, contorno, larguraMax: 0.3, fonte: 'bold',
+      u: 0.75, y: 0.372, altura: 0.046, cor: uni.numero, contorno: contornoNome, grossuraContorno: 0.24,
+      larguraMax: 0.3, fonte: 'bold',
     });
   }
   return novaTextura(canvas);
 }
 
-// Manga: listras (se houver) e punho na ponta
-function texturaManga(uni, punho) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
+// Manga: o padrão continua (listras e aros) e o punho na ponta. A manga vai da barra (v = 0) ao ombro.
+function texturaManga(uni, punho, longa) {
+  const W = 128;
+  const H = 64;
+  const [canvas, ctx] = novoCanvas(W, H);
   ctx.fillStyle = uni.camisa;
-  ctx.fillRect(0, 0, 64, 64);
-  if (uni.listras) {
-    ctx.fillStyle = uni.listras;
-    for (let k = 0; k < 2; k++) ctx.fillRect(8 + 32 * k, 0, 16, 64);
+  ctx.fillRect(0, 0, W, H);
+  if (uni.padrao === 'listras') {
+    ctx.fillStyle = uni.cores[0];
+    for (let k = 0; k < 3; k++) ctx.fillRect(((k / 3) + 0.25 / 3) * W - W / 12, 0, W / 6, H);
+  } else if (uni.padrao === 'aros') {
+    ctx.fillStyle = uni.cores[0];
+    const n = longa ? 7 : 4;
+    for (let k = 0; k < n; k += 2) ctx.fillRect(0, (k / n) * H, W, H / n);
+  }
+  // Tramado leve
+  for (let y = 0; y < H; y += 2) {
+    ctx.fillStyle = `rgba(0,0,0,${0.02 + 0.02 * ((y / 2) % 2)})`;
+    ctx.fillRect(0, y, W, 1);
   }
   if (punho) {
     ctx.fillStyle = uni.gola;
-    ctx.fillRect(0, 50, 64, 14);
+    ctx.fillRect(0, H - 9, W, 9);
+    if (contraste(uni.gola, uni.camisa) < 1.4) {
+      ctx.fillStyle = claro(uni.gola) ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)';
+      ctx.fillRect(0, H - 10, W, 1.5);
+    }
   }
   return novaTextura(canvas);
 }
 
+// Meião: listras na dobra de cima, tramado em canelado e o pé um pouco mais escuro
 function texturaMeiao(uni) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 32;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
+  const W = 64;
+  const H = 128;
+  const [canvas, ctx] = novoCanvas(W, H);
   ctx.fillStyle = uni.meiao;
-  ctx.fillRect(0, 0, 32, 64);
-  ctx.fillStyle = uni.faixaMeiao || uni.gola;
-  ctx.fillRect(0, 10, 32, 7);
-  ctx.fillRect(0, 21, 32, 3);
+  ctx.fillRect(0, 0, W, H);
+  for (let x = 0; x < W; x += 4) {
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    ctx.fillRect(x, 0, 1.5, H);
+  }
+  const v = meiaoBase.vDeY;
+  const faixa = (y0, y1) => {
+    const a = (1 - v(y1)) * H;
+    const b = (1 - v(y0)) * H;
+    ctx.fillRect(0, a, W, Math.max(1.5, b - a));
+  };
+  ctx.fillStyle = uni.faixaMeiao;
+  faixa(-0.1, -0.084);
+  faixa(-0.118, -0.11);
+  const g = ctx.createLinearGradient(0, (1 - v(-0.33)) * H, 0, H);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.12)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
   return novaTextura(canvas);
 }
 
-function matTextura(chave, criar) {
+// Chuteira: cor, sola, uma listra curva dos lados e o reforço do calcanhar.
+// u dá a volta (0 = cadarço, 0,25 = lado de fora/dentro, 0,5 = sola); v vai do calcanhar (0) ao bico (1).
+function texturaChuteira(cor) {
+  const W = 64;
+  const H = 64;
+  const [canvas, ctx] = novoCanvas(W, H);
+  const detalhe = luminancia(cor) > 0.35 ? '#1a1a1a' : '#f2f2f2';
+  ctx.fillStyle = cor;
+  ctx.fillRect(0, 0, W, H);
+  // Sola
+  ctx.fillStyle = corMisturada(cor, detalhe, 0.55);
+  ctx.fillRect(W * 0.37, 0, W * 0.26, H);
+  // Cadarço: tracinhos no peito do pé
+  ctx.fillStyle = corMisturada(cor, detalhe, 0.35);
+  for (let k = 0; k < 5; k++) {
+    const y = H - (0.42 + k * 0.055) * H;
+    ctx.fillRect(W - 4, y, 4, 1.5);
+    ctx.fillRect(0, y, 4, 1.5);
+  }
+  // Listra curva dos dois lados (do calcanhar para o meio do pé)
+  ctx.strokeStyle = detalhe;
+  ctx.lineWidth = 3.5;
+  ctx.lineCap = 'round';
+  for (const uLado of [0.25, 0.75]) {
+    ctx.beginPath();
+    ctx.moveTo(uLado * W + (uLado < 0.5 ? 4 : -4), H - 0.12 * H);
+    ctx.quadraticCurveTo(uLado * W, H - 0.42 * H, uLado * W + (uLado < 0.5 ? -9 : 9), H - 0.62 * H);
+    ctx.stroke();
+  }
+  // Reforço do calcanhar
+  ctx.fillStyle = corMisturada(cor, detalhe, 0.3);
+  ctx.fillRect(0, H - 0.13 * H, W, 0.13 * H);
+  return novaTextura(canvas);
+}
+
+function matTextura(chave, criar, { cor = '#ffffff', brilho = 0, corSemDocumento = '#cccccc' } = {}) {
   let m = cacheMat.get(chave);
   if (!m) {
-    m = new THREE.MeshLambertMaterial(temDocumento ? { map: criar() } : { color: 0xcccccc });
+    const mapa = temDocumento ? textura(chave, criar) : null;
+    const base = { color: new THREE.Color(mapa ? cor : corSemDocumento), vertexColors: true };
+    if (mapa) base.map = mapa;
+    m = brilho > 0
+      ? new THREE.MeshPhongMaterial({ ...base, shininess: brilho, specular: new THREE.Color(0x3a3a3a) })
+      : new THREE.MeshLambertMaterial(base);
     cacheMat.set(chave, m);
   }
   return m;
 }
 
-// Camisa de cada jogador (número e nome): fica em cache enquanto algum boneco usa
+// Camisa de cada jogador (número e nome): fica em cache enquanto algum boneco usa. As que ficam sem uso
+// esperam um pouco (até GUARDAR_CAMISAS) antes de sair da memória: a barreira é remontada a cada falta.
+const GUARDAR_CAMISAS = 10;
 const camisas = new Map();
+const guardadas = [];
 function pegarCamisa(uni, numero, nome) {
   const chave = JSON.stringify([uni, numero ?? null, nome ?? null]);
   let item = camisas.get(chave);
   if (!item) {
     const material = new THREE.MeshLambertMaterial(
-      temDocumento ? { map: texturaCamisa(uni, numero, nome) } : { color: uni.camisa },
+      temDocumento ? { map: texturaCamisa(uni, numero, nome), vertexColors: true } : { color: uni.camisa, vertexColors: true },
     );
     item = { chave, material, usos: 0 };
     camisas.set(chave, item);
   }
+  const i = guardadas.indexOf(item);
+  if (i >= 0) guardadas.splice(i, 1);
   item.usos++;
   return item;
 }
+function descartarCamisa(item) {
+  if (item.material.map) item.material.map.dispose();
+  item.material.dispose();
+  if (camisas.get(item.chave) === item) camisas.delete(item.chave);
+}
 function soltarCamisa(item) {
   item.usos--;
-  if (item.usos <= 0 && camisas.get(item.chave) === item) {
-    if (item.material.map) item.material.map.dispose();
-    item.material.dispose();
-    camisas.delete(item.chave);
-  }
+  if (item.usos > 0 || camisas.get(item.chave) !== item) return;
+  guardadas.push(item);
+  while (guardadas.length > GUARDAR_CAMISAS) descartarCamisa(guardadas.shift());
 }
 
 // ---------- Personagem ----------
@@ -824,6 +1835,7 @@ const VISUAL_PADRAO = {
   faixa: null, altura: 1.8, porte: 'normal', coxas: 'normais', chuteira: '#111111', goleiro: false,
 };
 const LARGURA_PORTE = { magro: 0.92, normal: 1, forte: 1.1 };
+const MANDIBULA_PORTE = { magro: 0.25, normal: 0.5, forte: 0.8 };
 
 function pivo(pai, x, y, z, ordem = 'XZY') {
   const o = new THREE.Object3D();
@@ -840,15 +1852,44 @@ function malha(pai, geometria, material, nome) {
   return m;
 }
 
-// Cria um boneco. visual: a aparência (veja js/elenco.js). uniforme: um dos UNIFORMES.
+// Estilo de cabelo efetivo (cacheado com faixa = os cachos compridos do Bruxo)
+function estiloEfetivo(v) {
+  const e = v.cabelo.estilo || 'curto';
+  if (e === 'cacheado' && (v.cabelo.comprimento === 'longo' || (v.faixa && v.cabelo.comprimento !== 'curto'))) return 'cacheadoLongo';
+  return ESTILOS_CABELO[e] ? e : 'curto';
+}
+
+// Material do rosto (textura pintada) para uma aparência
+function matRosto(v, estilo, corte, mand) {
+  const corCabelo = v.cabelo.cor || '#2a1d14';
+  const corBarba = v.corBarba || corCabelo;
+  const loiro = luminancia(corCabelo) > 0.25;
+  const sobrancelha = v.sobrancelha || (estilo === 'careca'
+    ? corMisturada(corBarba, '#1a1410', 0.35)
+    : corMisturada(corCabelo, '#24180f', loiro ? 0.45 : 0.15));
+  const barba = v.barba && v.barba !== 'nenhuma' ? v.barba : null;
+  const info = ESTILOS_CABELO[estilo];
+  // Raspado e laterais do moicano/topete: pontinhos; nos outros, a raiz é lisa (fica embaixo da casca)
+  const couro = info && info.couro ? { ...info.couro, pontos: ['raspado', 'moicano', 'topete'].includes(estilo) } : null;
+  const r = {
+    pele: v.pele, cabelo: estilo === 'raspado' || estilo === 'moicano' || estilo === 'topete' ? corMisturada(corCabelo, '#16100c', 0.25) : corCabelo,
+    barba: corBarba, estiloBarba: barba, sobrancelha, olhos: v.olhos || '#3a2518',
+    grossura: v.porte === 'forte' ? 1.15 : 1, couro,
+  };
+  const chave = `rosto:${JSON.stringify(r)}:${corte}:${mand}`;
+  return matTextura(chave, () => texturaRosto(r), { corSemDocumento: v.pele });
+}
+
+// Cria um boneco. visual: a aparência (veja js/elenco.js). uniforme: o do elenco ou um dos UNIFORMES.
 // Devolve { grupo, aplicarPose(pose), altura, alturaQuadril, juntas, pontoNoGrupo, alcancar, dispose() }.
 export function criarPersonagem({ visual = {}, uniforme, numero, nome } = {}) {
   const v = { ...VISUAL_PADRAO, ...visual, cabelo: { ...VISUAL_PADRAO.cabelo, ...(visual.cabelo || {}) } };
   const goleiro = !!v.goleiro;
-  const uni = uniforme || (goleiro ? UNIFORMES.goleiroLendas : UNIFORMES.lendas);
+  const uni = normalizarUniforme(uniforme || (goleiro ? UNIFORMES.goleiroLendas : UNIFORMES.lendas));
   const altura = v.altura || 1.8;
   const escala = altura / ALTURA_REF;
   const largura = LARGURA_PORTE[v.porte] ?? 1;
+  const mand = MANDIBULA_PORTE[v.porte] ?? 0.5;
   const coxasGrossas = v.coxas === 'grossas';
 
   const grupo = new THREE.Group();
@@ -860,13 +1901,13 @@ export function criarPersonagem({ visual = {}, uniforme, numero, nome } = {}) {
 
   const pele = matCor(v.pele);
   const camisa = pegarCamisa(uni, numero, nome);
-  const chaveUni = JSON.stringify(uni);
-  const matManga = matTextura(`manga:${chaveUni}`, () => texturaManga(uni, true));
-  const matMangaLisa = matTextura(`mangaLisa:${chaveUni}`, () => texturaManga(uni, false));
-  const matMeiao = matTextura(`meiao:${chaveUni}`, () => texturaMeiao(uni));
+  const chaveUni = JSON.stringify({ ...uni, luvas: null });
+  const matManga = matTextura(`manga:${chaveUni}:${goleiro ? 1 : 0}`, () => texturaManga(uni, true, goleiro), { corSemDocumento: uni.camisa });
+  const matMangaLisa = matTextura(`mangaLisa:${chaveUni}`, () => texturaManga(uni, false, true), { corSemDocumento: uni.camisa });
+  const matMeiao = matTextura(`meiao:${chaveUni}`, () => texturaMeiao(uni), { corSemDocumento: uni.meiao });
   const matCalcao = matCor(uni.calcao);
-  const matChuteira = matCor(v.chuteira);
-  const matLuva = matCor(uni.luvas || '#f2f2f2');
+  const matChuteira = matTextura(`chuteira:${v.chuteira}`, () => texturaChuteira(v.chuteira), { brilho: 60, corSemDocumento: v.chuteira });
+  const matLuva = matCor(uni.luvas || '#f2f2f2', { brilho: 8 });
 
   // --- Esqueleto ---
   const quadril = pivo(corpo, 0, QUADRIL_Y, 0);
@@ -878,80 +1919,80 @@ export function criarPersonagem({ visual = {}, uniforme, numero, nome } = {}) {
   // --- Tronco e bacia ---
   const mCamisa = malha(tronco, camisaBase.geometria, camisa.material, 'camisa');
   mCamisa.scale.set(largura, 1, 0.5 + 0.5 * largura);
-  const mCalcao = malha(quadril, geo('calcao', () => anelado(ANEIS_CALCAO, 12).geometria), matCalcao, 'calcao');
-  mCalcao.scale.set(0.6 + 0.4 * largura, 1, 0.6 + 0.4 * largura);
+  const mCalcao = malha(quadril, geo('calcao', geoCalcao), matCalcao, 'calcao');
+  mCalcao.scale.set(largura, 1, 0.5 + 0.5 * largura);
 
-  // --- Braços ---
+  // --- Braços (o direito é o esquerdo espelhado) ---
   const grossuraBraco = 0.55 + 0.45 * largura;
+  const tuboBraco = (chave, aneis, seg) => geo(chave, () => tubo(aneis, seg, {
+    cor: (x, y, z, u, j) => corBraco(x, y, z, u, j, aneis.length),
+  }).geometria);
   for (const lado of ['E', 'D']) {
     const s = lado === 'E' ? 1 : -1; // a esquerda do jogador fica em +x
     const ombro = pivo(tronco, s * ombroX, OMBRO_Y, 0);
     const cotovelo = pivo(ombro, 0, -BRACO, 0);
-    const manga = malha(ombro, geo(goleiro ? 'mangaLonga' : 'manga', () => torneado(PERFIS[goleiro ? 'mangaLonga' : 'manga'])),
-      goleiro ? matMangaLisa : matManga, 'manga');
-    manga.scale.set(grossuraBraco, 1, grossuraBraco);
-    if (!goleiro) {
-      const braco = malha(ombro, geo('braco', () => torneado(PERFIS.braco)), pele, 'braco');
-      braco.scale.set(grossuraBraco, 1, grossuraBraco);
-    }
-    const antebraco = malha(cotovelo,
-      geo(goleiro ? 'antebracoManga' : 'antebraco', () => torneado(PERFIS[goleiro ? 'antebracoManga' : 'antebraco'])),
-      goleiro ? matManga : pele, 'antebraco');
-    antebraco.scale.set(grossuraBraco, 1, grossuraBraco);
+    const pecas = [];
+    pecas.push(malha(ombro, goleiro ? tuboBraco('mangaLonga', ANEIS_MANGA_LONGA, 8) : tuboBraco('manga', ANEIS_MANGA, 8),
+      goleiro ? matMangaLisa : matManga, 'manga'));
+    if (!goleiro) pecas.push(malha(ombro, tuboBraco('braco', ANEIS_BRACO, 8), pele, 'braco'));
+    pecas.push(malha(cotovelo, goleiro ? tuboBraco('antebracoManga', ANEIS_ANTEBRACO_MANGA, 8) : tuboBraco('antebraco', ANEIS_ANTEBRACO, 8),
+      goleiro ? matManga : pele, 'antebraco'));
+    for (const m of pecas) m.scale.set(s * grossuraBraco, 1, grossuraBraco);
     const punho = pivo(cotovelo, 0, -ANTEBRACO, 0);
-    malha(punho, goleiro ? geo('luva', geoLuva) : geo('mao', geoMao), goleiro ? matLuva : pele, 'mao');
-    if (s < 0) punho.scale.x = -1; // mão direita espelhada (dedão para dentro)
+    malha(punho, goleiro ? geo('luva', () => geoMao(true)) : geo('mao', () => geoMao(false)), goleiro ? matLuva : pele, 'mao');
+    if (s < 0) punho.scale.x = -1; // mão direita espelhada (dedão para a frente, palma para dentro)
     juntas[`ombro${lado}`] = ombro;
     juntas[`cotovelo${lado}`] = cotovelo;
     juntas[`punho${lado}`] = punho;
   }
 
   // --- Pernas ---
+  const kc = coxasGrossas ? 1.2 : 1;
+  const kp = coxasGrossas ? 1.1 : 1;
   for (const lado of ['E', 'D']) {
     const s = lado === 'E' ? 1 : -1;
     const perna = pivo(quadril, s * QUADRIL_X, QUADRIL_JUNTA_Y, 0);
     const joelho = pivo(perna, 0, -COXA, 0);
     const tornozelo = pivo(joelho, 0, -CANELA, 0);
-    const kc = coxasGrossas ? 1.24 : 1;
-    const calcaoPerna = malha(perna, geo('pernaCalcao', () => torneado(PERFIS.pernaCalcao)), matCalcao, 'pernaCalcao');
-    calcaoPerna.scale.set(0.9 + 0.1 * largura + (kc - 1) * 0.55, 1, 0.9 + 0.1 * largura + (kc - 1) * 0.5);
-    const coxa = malha(perna, geo('coxa', () => torneado(PERFIS.coxa)), pele, 'coxa');
-    coxa.scale.set(kc * (0.9 + 0.1 * largura), 1, kc * 0.95 * (0.9 + 0.1 * largura));
-    malha(joelho, geo('canela', () => torneado(PERFIS.canela)), pele, 'canela');
-    const meiao = malha(joelho, geo('meiao', () => torneado(PERFIS.meiao)), matMeiao, 'meiao');
-    const kp = coxasGrossas ? 1.12 : 1;
-    meiao.scale.set(kp, 1, kp);
-    malha(tornozelo, geo('bota', geoBota), matChuteira, 'chuteira');
+    const calcaoPerna = malha(perna, geo('pernaCalcao', geoPernaCalcao), matCalcao, 'pernaCalcao');
+    const kl = 0.9 + 0.1 * largura;
+    calcaoPerna.scale.set(s * (kl + (kc - 1) * 0.5), 1, kl + (kc - 1) * 0.45);
+    const coxa = malha(perna, geo('coxa', () => tubo(ANEIS_COXA, 10, {
+      cor: (x, y, z, u, j) => 1 - 0.12 * Math.max(0, -x / 0.07) - 0.15 * suave((y + 0.13) / 0.1),
+    }).geometria), pele, 'coxa');
+    coxa.scale.set(s * kc * kl, 1, kc * 0.97 * kl);
+    const canela = malha(joelho, geo('joelho', () => tubo(ANEIS_JOELHO, 8, {
+      cor: (x, y) => 1 - 0.08 * sino(y + 0.01, 0.03),
+    }).geometria), pele, 'canela');
+    canela.scale.set(s * kp, 1, kp);
+    const meiao = malha(joelho, meiaoBase.geometria, matMeiao, 'meiao');
+    meiao.scale.set(s * kp, 1, kp);
+    const chuteira = malha(tornozelo, geo('chuteira', geoChuteira), matChuteira, 'chuteira');
+    chuteira.scale.x = s;
     juntas[`perna${lado}`] = perna;
     juntas[`joelho${lado}`] = joelho;
     juntas[`tornozelo${lado}`] = tornozelo;
   }
 
   // --- Cabeça, rosto e cabelo ---
-  malha(cabeca, geo('cabeca', geoCabeca), pele, 'cabeca');
-  malha(cabeca, geo('olhos', geoOlhos), matCor('#1d1511'), 'olhos');
+  const estilo = estiloEfetivo(v);
+  const corte = corteDoCabelo({ ...v, cabelo: { ...v.cabelo, estilo } });
+  malha(cabeca, geoCabeca(mand), matRosto(v, estilo, corte, mand), 'cabeca');
   const corCabelo = v.cabelo.cor || '#2a1d14';
   const corBarba = v.corBarba || corCabelo;
-  const corSobrancelha = v.cabelo.estilo === 'careca' ? corMisturada(corBarba, '#1a1410', 0.3)
-    : corMisturada(corCabelo, '#1a1410', 0.25);
-  malha(cabeca, geo('sobrancelhas', geoSobrancelhas), matCor(corSobrancelha), 'sobrancelhas');
-  const estilo = v.cabelo.estilo || 'curto';
-  const comFaixa = !!v.faixa && estilo !== 'careca';
-  for (const parte of geoCabelo(estilo, comFaixa)) {
-    // Raspado: mistura do cabelo com a pele; no moicano a raiz é mais escura (contrasta com a crista)
-    const raiz = estilo === 'moicano' ? corMisturada(corCabelo, '#2a1d14', 0.55) : corCabelo;
-    const cor = parte.tom === 'raspado' ? corMisturada(raiz, v.pele, 0.42) : corCabelo;
-    malha(cabeca, parte.geometria, matCor(cor, true), 'cabelo');
+  const comFaixa = !!v.faixa && estilo !== 'careca' && estilo !== 'raspado';
+  // O cabelo fica um pouco mais claro que a cor do elenco: a textura de fios escurece
+  const tomCabelo = corMisturada(corCabelo, '#ffffff', luminancia(corCabelo) > 0.2 ? 0.08 : 0.04);
+  for (const parte of geoCabelo(estilo, corte, comFaixa)) {
+    const mapa = parte.cachos ? texturaCachos() : texturaFios();
+    malha(cabeca, parte.geometria, matCor(tomCabelo, { duplo: true, brilho: 14, mapa, chaveMapa: parte.cachos ? 'cachos' : 'fios' }), 'cabelo');
   }
   if (comFaixa) {
-    const folga = (FOLGA_CABELO[estilo] ?? 0.012) + 0.004;
-    malha(cabeca, geo(`faixa:${folga}`, () => geoFaixa(folga)), matCor(v.faixa, true), 'faixa');
+    const folga = FAIXA_FOLGA[estilo] ?? 0.012;
+    malha(cabeca, geo(`faixa:${folga}`, () => geoFaixa(folga)), matCor(v.faixa, { duplo: true }), 'faixa');
   }
-  if (v.barba && v.barba !== 'nenhuma') {
-    const g = geoBarba(v.barba);
-    const cor = v.barba === 'rala' ? corMisturada(v.pele, corBarba, 0.3) : corBarba;
-    if (g) malha(cabeca, g, matCor(cor), 'barba');
-  }
+  const gBarba = v.barba && v.barba !== 'nenhuma' ? geoBarba(v.barba, mand) : null;
+  if (gBarba) malha(cabeca, gBarba, matCor(corBarba, { brilho: 6, mapa: texturaCachos(), chaveMapa: 'cachos' }), 'barba');
 
   // Altura do quadril de pé, no espaço do grupo
   const alturaQuadril = QUADRIL_Y * escala;
@@ -1088,6 +2129,7 @@ export function criarPersonagem({ visual = {}, uniforme, numero, nome } = {}) {
 
   aplicarPose(posePadrao(0));
 
+  let descartado = false;
   return {
     grupo,
     aplicarPose,
@@ -1098,8 +2140,11 @@ export function criarPersonagem({ visual = {}, uniforme, numero, nome } = {}) {
     alcancar,
     visual: v,
     uniforme: uni,
+    // Pode ser chamado mais de uma vez: a camisa compartilhada só é solta na primeira
     dispose() {
       if (grupo.parent) grupo.parent.remove(grupo);
+      if (descartado) return;
+      descartado = true;
       soltarCamisa(camisa);
     },
   };
@@ -1425,7 +2470,9 @@ export function poseLamento(t = 0) {
 
 // Quantos recursos estão em cache (para conferir que dispose() não deixa sobras)
 export function estatisticasCache() {
-  return { geometrias: cacheGeo.size, materiais: cacheMat.size, camisas: camisas.size };
+  let usadas = 0;
+  for (const item of camisas.values()) if (item.usos > 0) usadas++;
+  return { geometrias: cacheGeo.size, materiais: cacheMat.size, texturas: cacheTex.size, camisas: camisas.size, camisasEmUso: usadas, camisasGuardadas: guardadas.length };
 }
 
 // ---------- Sombra ----------

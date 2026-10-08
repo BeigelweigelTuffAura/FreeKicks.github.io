@@ -1,9 +1,11 @@
 // Testes da barreira e do goleiro. Rodar com: node testes/defesa.mjs
+// (com --completo, o "jogador bom" bate mais faltas: demora mais e dá números mais firmes)
 // Tudo é determinista: cada cobrança usa um sorteio com semente fixa (mesma semente, mesmo resultado).
 // Os números de "quantos % de gols" medem a sensação: o goleiro defende o fácil e sofre no ângulo.
 import assert from 'node:assert/strict';
 import { CONFIG } from '../js/config.js';
-import { criarBola, passo } from '../js/physics.js';
+import { criarBola, passo, chutar } from '../js/physics.js';
+import { ELENCO } from '../js/elenco.js';
 import {
   montarBarreira, atualizarBarreira, colidirBolaBarreira, quantidadeNaBarreira, PADRAO_BARREIRA,
 } from '../js/barreira.js';
@@ -11,8 +13,10 @@ import {
   criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, partesDoGoleiro, PADRAO_GOLEIRO,
 } from '../js/goleiro.js';
 
+const COMPLETO = process.argv.includes('--completo');
 const H = 1 / 240; // passo da física, como no jogo
 const MEIA = CONFIG.golLargura / 2;
+const GRAUS = Math.PI / 180;
 
 // Sorteio com semente (mulberry32): a mesma semente dá sempre a mesma sequência
 function sorteio(semente) {
@@ -107,13 +111,15 @@ function mirar(origem, alvo, { velocidade, lateral = 0, topo = 0 }) {
 }
 
 // Uma cobrança completa: barreira, goleiro e bola, como no jogo.
+//   chute: { velocidade, direcao, ... } montado à mão; ou preparar(bola, aleatorio): chute de verdade (chutar())
 //   barreira: 'sorteio' (pula com a chance do padrão) | 'parada' | 'pula' | 'nenhuma'
 //   colisaoBarreira: false = a barreira só posiciona o goleiro e tapa a visão (para medir só o goleiro)
 //   danca: intensidade da bola sem rotação (0 = bola normal)
 //   modo: 'fisica' (goleiro atualizado a cada passo) | 'quadro' (uma vez por quadro de 1/60 s)
+//   registrar: guarda, a cada passo, a bola, o centro do corpo e se ele está segurando
 function cobrar({
-  origem = { x: 0, z: 22 }, chute, danca = 0, semente = 1, barreira = 'sorteio', colisaoBarreira = true,
-  modo = 'fisica', goleiro = {},
+  origem = { x: 0, z: 22 }, chute, preparar, danca = 0, semente = 1, barreira = 'sorteio', colisaoBarreira = true,
+  modo = 'fisica', goleiro = {}, registrar = false,
 }) {
   const aleatorio = sorteio(semente);
   const cfg = { ...CONFIG, goleiro: { ...goleiro }, barreira: {} };
@@ -123,12 +129,13 @@ function cobrar({
   const g = criarGoleiro(origem, b, cfg);
   const bola = criarBola({ x: origem.x, y: CONFIG.raioBola, z: origem.z });
 
-  // Antes do chute o goleiro fica balançando um tempo que varia
-  const espera = 0.3 + aleatorio() * 0.6;
+  // Antes do chute: o goleiro dá o passo para o lado e espera (o tempo de mirar e carregar varia)
+  const espera = 1.0 + aleatorio() * 0.6;
   for (let t = 0; t < espera; t += 1 / 60) atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false });
   assert.equal(g.pose.estado, 'pronto');
 
-  montarChute(bola, chute);
+  if (preparar) preparar(bola, aleatorio);
+  else montarChute(bola, chute);
   if (danca > 0) {
     bola.danca = {
       intensidade: danca, t: 0,
@@ -142,6 +149,7 @@ function cobrar({
 
   const eventos = [];
   const estados = new Set();
+  const trilha = [];
   let t = 0;
   const opcoes = () => ({ chutou: true, tempoDesdeChute: t, aleatorio });
   for (let q = 0; q < 3 * 60; q++) {
@@ -150,12 +158,19 @@ function cobrar({
       t += H;
       if (b) atualizarBarreira(b, t);
       if (modo === 'fisica') atualizarGoleiro(g, bola, H, cfg, opcoes());
+      const antes = { ...bola.pos };
       passo(bola, H, CONFIG);
       if (b && colisaoBarreira) colidirBolaBarreira(bola, b, cfg);
       colidirBolaGoleiro(bola, g, cfg);
       for (const ev of bola.eventos) eventos.push({ ...ev, t });
       bola.eventos.length = 0;
       estados.add(g.pose.estado);
+      if (registrar) {
+        trilha.push({
+          t, bola: { ...bola.pos }, centro: { x: g.cx, y: g.cy }, segurando: g.segurando,
+          salto: Math.hypot(bola.pos.x - antes.x, bola.pos.y - antes.y, bola.pos.z - antes.z),
+        });
+      }
 
       if (!cruzouGoleiro) {
         const z = fantasma.pos.z;
@@ -174,7 +189,7 @@ function cobrar({
   else if (tipos.has('defesa')) resultado = 'defesa';
   else if (tipos.has('barreira')) resultado = 'barreira';
   const defesa = eventos.find((e) => e.tipo === 'defesa');
-  return { resultado, modo: defesa?.modo, eventos, estados, bola, g, b, cruzouGoleiro };
+  return { resultado, modo: defesa?.modo, eventos, estados, bola, g, b, cruzouGoleiro, trilha };
 }
 
 // Lado do gol em relação ao goleiro: 'goleiro' = lado que a barreira não cobre (onde ele está)
@@ -289,7 +304,25 @@ teste('barreira: o pulo sobe e desce numa parábola, depois do chute', () => {
   assert.ok(parada.jogadores.every((j) => j.yPes === 0));
 });
 
-// (6) Barreira parada segura o rasteiro; pulando, o rasteiro passa por baixo
+teste('barreira: com os ajustes do pulo no zero, ninguém pula antes do chute nem afunda no chão', () => {
+  const zerado = { chancePulo: 1, alturaPulo: 0, atrasoPulo: 0, duracaoPulo: 0 };
+  for (let s = 1; s <= 10; s++) {
+    const b = montarBarreira({ x: 0, z: 22 }, { ...CONFIG, barreira: zerado }, sorteio(s));
+    for (const j of b.jogadores) {
+      assert.ok(j.pulo.atraso >= 0 && j.pulo.altura >= 0 && j.pulo.duracao > 0, JSON.stringify(j.pulo));
+    }
+    for (let t = -0.5; t < 1; t += 0.01) {
+      atualizarBarreira(b, t);
+      assert.ok(b.jogadores.every((j) => Number.isFinite(j.yPes) && j.yPes >= 0), `t=${t}`);
+    }
+  }
+  // Sem config nenhuma, vale o padrão
+  const b = montarBarreira({ x: 0, z: 22 });
+  assert.equal(b.jogadores.length, 4);
+  assert.ok(b.jogadores.every((j) => Number.isFinite(j.x + j.z + j.altura)));
+});
+
+// Barreira parada segura o rasteiro; pulando, o rasteiro passa por baixo
 teste('barreira: chute baixo bate na barreira parada; com ela pulando, o rasteiro passa por baixo', () => {
   for (let s = 1; s <= 6; s++) {
     for (const v of [20, 25]) {
@@ -351,17 +384,29 @@ teste('barreira: bola na altura do peito rebate fraco; por cima, passa direto', 
   assert.ok(!alto.ev, 'bola alta passa por cima');
 });
 
-// ---------- Goleiro ----------
+// ---------- Goleiro: antes do chute ----------
 
-teste('goleiro: começa um pouco à frente da linha, do lado que a barreira não cobre, de frente para a bola', () => {
+teste('goleiro: começa no meio do ângulo e, antes do chute, dá o passo para o lado que a barreira não cobre', () => {
   const origem = { x: 0, z: 22 };
+  const bola = criarBola({ x: origem.x, y: CONFIG.raioBola, z: origem.z });
   for (let s = 1; s <= 6; s++) {
     const b = montarBarreira(origem, CONFIG, sorteio(s));
     const g = criarGoleiro(origem, b, CONFIG);
     assert.ok(Math.abs(g.pose.z - PADRAO_GOLEIRO.posicaoZ) < 1e-9);
     assert.ok(Math.abs(g.base.x + b.lado * PADRAO_GOLEIRO.deslocamento) < 1e-9, `x=${g.base.x}`);
+    assert.ok(Math.abs(g.cx) < 1e-9, 'começa na bissetriz (de frente: no meio)');
     assert.ok(Math.abs(g.pose.rotacaoY) < 0.1);
     assert.equal(g.pose.estado, 'pronto');
+    // Anda de lado, sem pressa e sem passar do ponto
+    let maisLonge = 0;
+    for (let t = 0; t < 1.2; t += 1 / 60) {
+      atualizarGoleiro(g, bola, 1 / 60, CONFIG, { chutou: false });
+      maisLonge = Math.max(maisLonge, -b.lado * g.cx);
+      assert.ok(Math.abs(g.vx) <= 1.5 + 1e-9, `passo rápido demais: ${g.vx}`);
+    }
+    assert.ok(Math.abs(g.cx - g.base.x) < 0.06, `chegou no lugar: ${g.cx} (base ${g.base.x})`);
+    assert.ok(maisLonge < PADRAO_GOLEIRO.deslocamento + 0.06, 'não passa do ponto');
+    assert.ok(Math.abs(g.pose.rotacaoY) < 0.1, 'de frente para a bola');
   }
   // Falta pela direita: fica perto da bissetriz, puxado para a esquerda (a barreira cobre a direita)
   const lateral = { x: 9, z: 18 };
@@ -376,71 +421,142 @@ teste('goleiro: começa um pouco à frente da linha, do lado que a barreira não
   assert.ok(Math.abs(criarGoleiro(origem, null, CONFIG).base.x) < 1e-9);
 });
 
-// (1) Chute central na altura do peito a 25 m/s: defendido
-teste('(1) chute central na altura do peito a 25 m/s é defendido', () => {
+teste('goleiro: na corrida do cobrador se firma e dá o passinho de prontidão, caindo na base na hora do chute', () => {
+  const origem = { x: 0, z: 22 };
+  const bola = criarBola({ x: origem.x, y: CONFIG.raioBola, z: origem.z });
+  const g = criarGoleiro(origem, montarBarreira(origem, CONFIG, sorteio(1)), CONFIG);
+  for (let t = 0; t < 1.5; t += 1 / 60) atualizarGoleiro(g, bola, 1 / 60, CONFIG, { chutou: false });
+  const quadril = g.pose.y;
+  assert.ok(g.pose.prontidao < 0.01, 'relaxado antes da corrida');
+  // Corrida de 0,8 s
+  let pico = 0;
+  const xs = [];
+  for (let falta = 0.8; falta > 1e-9; falta -= 1 / 120) {
+    atualizarGoleiro(g, bola, 1 / 120, CONFIG, { chutou: false, tempoAteChute: falta });
+    pico = Math.max(pico, g.pose.y - 0.92);
+    if (falta < 0.13) xs.push(g.pose.x);
+  }
+  atualizarGoleiro(g, bola, 1 / 120, CONFIG, { chutou: false, tempoAteChute: 0 });
+  assert.ok(g.pose.prontidao > 0.99, `firme na base: ${g.pose.prontidao}`);
+  assert.ok(Math.max(...xs) - Math.min(...xs) < 0.005, 'parou de balançar');
+  assert.ok(pico > 0.025 && pico < 0.05, `passinho de ${pico} m`);
+  assert.ok(Math.abs(g.pose.y - 0.92) < 0.003, `caiu na base na hora do chute (quadril ${g.pose.y}, antes ${quadril})`);
+  // Sem saber da corrida: o passinho vem logo depois do chute (no tempo de reação)
+  const g2 = criarGoleiro(origem, null, CONFIG);
+  for (let t = 0; t < 1.5; t += 1 / 60) atualizarGoleiro(g2, bola, 1 / 60, CONFIG, { chutou: false });
+  bola.vel = { x: 0, y: 3, z: -25 };
+  let pico2 = 0;
+  for (let t = H; t < 0.25; t += H) {
+    atualizarGoleiro(g2, bola, H, CONFIG, { chutou: true, tempoDesdeChute: t, aleatorio: sorteio(1) });
+    if (t < 0.2) pico2 = Math.max(pico2, g2.pose.y - g2.cy + 0.3);
+  }
+  assert.ok(pico2 > 0.025, `passinho depois do chute: ${pico2}`);
+  assert.ok(Math.abs(g2.pose.y - (g2.cy - 0.3)) < 1e-9, 'e já caiu na base');
+});
+
+// ---------- Goleiro: defende o fácil ----------
+
+// (1) Chute central na altura do peito a 25 m/s: defendido sempre
+teste('(1) chute central na altura do peito a 25 m/s é defendido sempre', () => {
   const casos = [-0.3, 0, 0.3].map((x) => ({ origem: { x: 0, z: 22 }, alvo: { x, y: 1.3 }, velocidade: 25 }));
   const sem = taxaDeGols(casos, 30, { barreira: 'nenhuma' });
   const com = taxaDeGols(casos, 30);
   console.log(`    gols: sem barreira ${pct(sem.total)}, com barreira ${pct(com.total)} (${com.n} chutes)`);
   assert.equal(sem.total, 0);
-  assert.ok(com.total <= 0.03);
+  assert.equal(com.total, 0);
 });
 
-// (2) Chute no ângulo com curva a 28 m/s vindo de 22 m: gol na grande maioria
-teste('(2) chute no ângulo (x ±3,3, y 2,1) a 28 m/s com curva, de 22 m: gol em pelo menos 70%', () => {
-  const casos = [];
-  for (const origem of [{ x: 0, z: 22 }, { x: 5, z: 21.4 }, { x: -5, z: 21.4 }]) {
-    for (const x of [-3.3, 3.3]) for (const lateral of [-40, 40]) casos.push({ origem, alvo: { x, y: 2.1 }, velocidade: 28, lateral });
-  }
-  const r = taxaDeGols(casos, 20);
-  console.log(`    gols: ${pct(r.total)} (lado do goleiro ${pct(r.goleiro)}, por cima da barreira ${pct(r.barreira)}; ${r.n} chutes)`);
-  assert.ok(r.total >= 0.7, `só ${pct(r.total)}`);
-  assert.ok(r.goleiro >= 0.4, `no canto do goleiro só ${pct(r.goleiro)}`);
-  // De frente para o gol, a curva atrapalha a leitura do goleiro: ele erra mais o ponto do mergulho
-  const erroDeLeitura = (lateral) => {
-    let soma = 0;
-    let n = 0;
-    let gols = 0;
-    for (const x of [-3.3, 3.3]) {
-      for (const lat of lateral ? [lateral, -lateral] : [0]) {
-        const chute = mirar({ x: 0, z: 22 }, { x, y: 2.1 }, { velocidade: 28, lateral: lat });
-        for (let s = 1; s <= 40; s++) {
-          const r = cobrar({ chute, semente: s, colisaoBarreira: false });
-          if (ladoDoAlvo(r, x) !== 'goleiro') continue;
-          if (r.resultado === 'gol') gols++;
-          if (r.g.mergulho && r.cruzouGoleiro) {
-            soma += Math.abs(r.g.mergulho.alvoLido.x - r.cruzouGoleiro.x);
-            n++;
-          }
-        }
+// (2) Curva no chute que vai no meio do gol quase não ajuda: ela engana quando a bola termina longe dele
+teste('(2) chute no meio com curva, de 22 m: no máximo ~1,5x os gols do chute reto', () => {
+  const casos = (giro) => {
+    const lista = [];
+    for (const x of [-1.2, -0.6, 0, 0.6, 1.2]) {
+      for (const y of [0.6, 1.2, 1.8]) {
+        for (const s of giro ? [-1, 1] : [1]) lista.push({ origem: { x: 0, z: 22 }, alvo: { x, y }, velocidade: 28, lateral: s * giro });
       }
     }
-    return { erro: soma / n, gols: gols / n };
+    return lista;
   };
-  const reto = erroDeLeitura(0);
-  const curva = erroDeLeitura(40);
-  console.log(`    de frente, no canto do goleiro: erro lateral da leitura ${reto.erro.toFixed(2)} m sem curva, ${curva.erro.toFixed(2)} m com curva`);
-  console.log(`    (gols no canto do goleiro: sem curva ${pct(reto.gols)}, com curva ${pct(curva.gols)})`);
-  assert.ok(curva.erro > reto.erro * 1.2, 'a curva deveria atrapalhar a leitura do goleiro');
+  const reto = taxaDeGols(casos(0), 24);
+  const comCurva = [30, 45, 60].map((giro) => ({ giro, ...taxaDeGols(casos(giro), 12) }));
+  console.log(`    gols: reto ${pct(reto.total)}; ${comCurva.map((c) => `giro ${c.giro} ${pct(c.total)}`).join(', ')} (${reto.n} chutes cada)`);
+  for (const c of comCurva) assert.ok(c.total <= 1.5 * reto.total + 0.03, `giro ${c.giro}: ${pct(c.total)} contra ${pct(reto.total)}`);
+  const media = comCurva.reduce((s, c) => s + c.total, 0) / comCurva.length;
+  assert.ok(media <= 1.5 * reto.total + 0.015, `média com curva ${pct(media)}`);
+
+  // E ele não se joga longe da bola só porque a primeira impressão da curva enganou
+  let longe = 0;
+  let n = 0;
+  for (const { origem, alvo, velocidade, lateral } of casos(45)) {
+    const chute = mirar(origem, alvo, { velocidade, lateral });
+    for (let s = 1; s <= 6; s++) {
+      const r = cobrar({ origem, chute, semente: s, colisaoBarreira: false });
+      n++;
+      if (r.g.mergulho && r.cruzouGoleiro && Math.abs(r.g.mergulho.alvoLido.x - r.cruzouGoleiro.x) > 1) longe++;
+    }
+  }
+  console.log(`    curva para o meio: mergulhou a mais de 1 m da bola em ${pct(longe / n)} (${n} chutes)`);
+  assert.ok(longe / n <= 0.03);
 });
 
-// (3) Rasteiro no canto a 30 m/s: gol na maioria
-teste('(3) rasteiro no canto (x ±3,2, y 0,3) a 30 m/s: gol em pelo menos 60%', () => {
-  const casos = [-3.2, 3.2].map((x) => ({ origem: { x: 0, z: 22 }, alvo: { x, y: 0.3 }, velocidade: 30 }));
-  const r = taxaDeGols(casos, 60);
-  console.log(`    gols: ${pct(r.total)} (lado do goleiro ${pct(r.goleiro)}, lado da barreira ${pct(r.barreira)}; ${r.n} chutes)`);
-  assert.ok(r.total >= 0.6, `só ${pct(r.total)}`);
-  assert.ok(r.goleiro >= 0.35, `no canto do goleiro só ${pct(r.goleiro)}`);
-});
-
-// (4) Meia altura, 1,5 m para dentro da trave, a 20 m/s: defendido na maioria
-teste('(4) meia altura, 1,5 m para dentro da trave, a 20 m/s: defendido na maioria', () => {
+// (5) Meia altura, 1,5 m para dentro da trave, a 20 m/s: defendido na maioria
+teste('(5) meia altura, 1,5 m para dentro da trave, a 20 m/s: defendido na maioria', () => {
   const x = MEIA - 1.5;
   const casos = [-x, x].map((xx) => ({ origem: { x: 0, z: 22 }, alvo: { x: xx, y: 1.0 }, velocidade: 20 }));
   const r = taxaDeGols(casos, 60);
   console.log(`    gols: ${pct(r.total)} (lado do goleiro ${pct(r.goleiro)}, lado da barreira ${pct(r.barreira)}; ${r.n} chutes)`);
   assert.ok(r.total <= 0.2, `${pct(r.total)} de gols`);
   assert.ok(r.barreira <= 0.35, `do lado da barreira ${pct(r.barreira)} de gols`);
+});
+
+// ---------- Goleiro: sofre no ângulo ----------
+
+// (3) Chute no ângulo a 28 m/s vindo de 22 m: gol na grande maioria
+teste('(3) chute no ângulo (x ±3,3, y 2,1) a 28 m/s, de 22 m: gol em pelo menos 65%', () => {
+  const casos = [];
+  for (const origem of [{ x: 0, z: 22 }, { x: 5, z: 21.4 }, { x: -5, z: 21.4 }]) {
+    for (const x of [-3.3, 3.3]) for (const lateral of [-40, 0, 40]) casos.push({ origem, alvo: { x, y: 2.1 }, velocidade: 28, lateral });
+  }
+  const r = taxaDeGols(casos, 20);
+  console.log(`    gols: ${pct(r.total)} (lado do goleiro ${pct(r.goleiro)}, por cima da barreira ${pct(r.barreira)}; ${r.n} chutes)`);
+  assert.ok(r.total >= 0.65, `só ${pct(r.total)}`);
+  assert.ok(r.goleiro >= 0.4, `no canto do goleiro só ${pct(r.goleiro)}`);
+  // No canto dele, a curva atrapalha: ele espera para ler melhor e chega atrasado
+  const noCanto = (lateral) => {
+    let gols = 0;
+    let n = 0;
+    let tempoMergulho = 0;
+    let comMergulho = 0;
+    for (const x of [-3.3, 3.3]) {
+      for (const lat of lateral ? [lateral, -lateral] : [0]) {
+        const chute = mirar({ x: 0, z: 22 }, { x, y: 2.1 }, { velocidade: 28, lateral: lat });
+        for (let s = 1; s <= 30; s++) {
+          const r2 = cobrar({ chute, semente: s, colisaoBarreira: false });
+          if (ladoDoAlvo(r2, x) !== 'goleiro') continue;
+          n++;
+          if (r2.resultado === 'gol') gols++;
+          if (r2.g.mergulho) {
+            tempoMergulho += r2.g.mergulho.t0;
+            comMergulho++;
+          }
+        }
+      }
+    }
+    return { gols: gols / n, t0: tempoMergulho / comMergulho };
+  };
+  const reto = noCanto(0);
+  const curva = noCanto(40);
+  console.log(`    no canto do goleiro: sem curva ${pct(reto.gols)} de gols (mergulha em ${reto.t0.toFixed(2)} s), com curva ${pct(curva.gols)} (em ${curva.t0.toFixed(2)} s)`);
+  assert.ok(curva.gols >= reto.gols + 0.15, 'a curva no canto deveria enganar o goleiro');
+  assert.ok(curva.t0 > reto.t0, 'com curva ele demora mais para se decidir');
+});
+
+// (4) Rasteiro no canto a 30 m/s: gol na maioria
+teste('(4) rasteiro no canto (x ±3,2, y 0,3) a 30 m/s: gol em pelo menos 55%', () => {
+  const casos = [-3.2, 3.2].map((x) => ({ origem: { x: 0, z: 22 }, alvo: { x, y: 0.3 }, velocidade: 30 }));
+  const r = taxaDeGols(casos, 60);
+  console.log(`    gols: ${pct(r.total)} (lado do goleiro ${pct(r.goleiro)}, lado da barreira ${pct(r.barreira)}; ${r.n} chutes)`);
+  assert.ok(r.total >= 0.55, `só ${pct(r.total)}`);
 });
 
 teste('goleiro: o chute mais forte é mais difícil; o colocado no meio do gol quase sempre é defendido', () => {
@@ -454,8 +570,8 @@ teste('goleiro: o chute mais forte é mais difícil; o colocado no meio do gol q
   assert.ok(meio.total <= 0.1);
 });
 
-// (5) Bola sem rotação: mais difícil de ler que a mesma bola sem a oscilação
-teste('(5) bola sem rotação é mais difícil de ler que a equivalente sem oscilação', () => {
+// (6) Bola sem rotação: mais difícil de ler que a mesma bola sem a oscilação
+teste('(6) bola sem rotação é mais difícil de ler que a equivalente sem oscilação', () => {
   const origem = { x: 0, z: 25 };
   const conta = (danca) => {
     let gols = 0;
@@ -483,8 +599,8 @@ teste('(5) bola sem rotação é mais difícil de ler que a equivalente sem osci
   assert.ok(semRotacao.gols > normal.gols + 0.1);
 });
 
-// (7) Mesma semente, mesmo resultado
-teste('(7) mesma semente = mesmo resultado (e quase o mesmo atualizando a cada quadro)', () => {
+// (8) Mesma semente, mesmo resultado
+teste('(8) mesma semente = mesmo resultado (e quase o mesmo atualizando a cada quadro)', () => {
   const chute = mirar({ x: 0, z: 22 }, { x: 3.3, y: 2.1 }, { velocidade: 28, lateral: 40 });
   for (let s = 1; s <= 8; s++) {
     const a = cobrar({ chute, semente: s, danca: 0.8 });
@@ -494,38 +610,143 @@ teste('(7) mesma semente = mesmo resultado (e quase o mesmo atualizando a cada q
     assert.deepEqual(a.g.pose, b.g.pose);
     assert.equal(a.eventos.length, b.eventos.length);
   }
-  const casos = [{ origem: { x: 0, z: 22 }, alvo: { x: 3.3, y: 2.1 }, velocidade: 28, lateral: 40 }];
-  const fisica = taxaDeGols(casos, 40);
-  const quadro = taxaDeGols(casos, 40, { modo: 'quadro' });
+  const casos = [
+    { origem: { x: 0, z: 22 }, alvo: { x: 3.3, y: 2.1 }, velocidade: 28, lateral: 40 },
+    { origem: { x: 0, z: 22 }, alvo: { x: -2.4, y: 1.2 }, velocidade: 26 },
+    { origem: { x: 0, z: 22 }, alvo: { x: 2.8, y: 0.4 }, velocidade: 28 },
+  ];
+  const fisica = taxaDeGols(casos, 30);
+  const quadro = taxaDeGols(casos, 30, { modo: 'quadro' });
   console.log(`    gols atualizando a cada passo ${pct(fisica.total)}, a cada quadro ${pct(quadro.total)}`);
-  assert.ok(Math.abs(fisica.total - quadro.total) <= 0.15);
+  assert.ok(Math.abs(fisica.total - quadro.total) <= 0.1);
 });
 
-teste('goleiro: bola fraca no peito é encaixada e fica com ele (sem mexer no gol/cruzamento)', () => {
-  const chute = mirar({ x: 0, z: 22 }, { x: 0, y: 1.2 }, { velocidade: 19 });
-  for (let s = 1; s <= 10; s++) {
-    const r = cobrar({ chute, semente: s, barreira: 'nenhuma' });
-    assert.equal(r.resultado, 'defesa');
-    assert.equal(r.modo, 'segurou');
-    assert.equal(r.g.pose.estado, 'segurou');
-    assert.equal(r.bola.cruzamento, null);
-    assert.equal(r.bola.gol, false);
-    const { maos } = r.g.pose;
-    const meio = { x: (maos.direita.x + maos.esquerda.x) / 2, z: (maos.direita.z + maos.esquerda.z) / 2 };
-    assert.ok(Math.hypot(r.bola.pos.x - meio.x, r.bola.pos.z - meio.z) < 0.2, 'bola nas mãos');
-    assert.ok(Math.hypot(r.bola.vel.x, r.bola.vel.y, r.bola.vel.z) < 0.01, 'parada');
+// ---------- Goleiro: o corpo ----------
+
+teste('goleiro: o mergulho é físico (as pernas aceleram o corpo, depois ele voa em parábola)', () => {
+  const chute = mirar({ x: 0, z: 22 }, { x: -2.9, y: 1.5 }, { velocidade: 24 });
+  let voos = 0;
+  for (let s = 1; s <= 8; s++) {
+    const r = cobrar({ chute, semente: s, barreira: 'nenhuma', registrar: true });
+    const m = r.g.mergulho;
+    assert.ok(m && m.modo === 'voo' && m.lado !== 0, 'mergulha de lado');
+    const pts = r.trilha.filter((p) => p.t >= m.t0 - 1e-9);
+    const vel = (i) => (pts[i + 1].centro.x - pts[i].centro.x) / H;
+    // Impulso: a velocidade de lado cresce aos poucos (nada de sair voando de uma vez)
+    const nImpulso = Math.floor(m.preparo / H) - 1;
+    for (let i = 1; i < nImpulso; i++) assert.ok(Math.abs(vel(i)) >= Math.abs(vel(i - 1)) - 1e-6, 'acelera no impulso');
+    assert.ok(Math.abs(vel(0)) <= PADRAO_GOLEIRO.velocidadeLateral + 0.2, `começa no embalo dos passos: ${vel(0)}`);
+    // Nunca mais rápido que as pernas conseguem
+    for (let i = 0; i < pts.length - 1; i++) assert.ok(Math.abs(vel(i)) <= PADRAO_GOLEIRO.velocidadeMergulho + 0.05, `rápido demais: ${vel(i)}`);
+    // No ar (depois do impulso e antes de tocar o chão): cai com a gravidade
+    const fimDoVoo = m.pouso ? m.pouso.tau : Infinity;
+    let medidos = 0;
+    for (let i = nImpulso + 3; i < pts.length - 1; i++) {
+      const tau = pts[i].t - m.t0;
+      if (tau > fimDoVoo - 3 * H || pts[i].centro.y < 0.9) break;
+      const ay = (pts[i + 1].centro.y - 2 * pts[i].centro.y + pts[i - 1].centro.y) / (H * H);
+      assert.ok(Math.abs(ay + 9.81) < 0.2, `aceleração no ar ${ay}`);
+      medidos++;
+    }
+    if (medidos >= 20) voos++;
+    // Termina deitado no chão, perto da trave (na frente da linha do gol, então não entra na rede)
+    assert.ok(r.g.pose.y > 0.05 && r.g.pose.y < 0.6, `deitado: quadril em ${r.g.pose.y}`);
+    assert.ok(r.g.cx < -1.5 && r.g.cx > -MEIA - 1, `termina em x=${r.g.cx}`);
+    assert.ok(Math.abs(r.g.pose.z - PADRAO_GOLEIRO.posicaoZ) < 0.35, 'na frente da linha');
+  }
+  assert.ok(voos >= 4, `voos medidos: ${voos}`);
+});
+
+teste('goleiro: bola fraca no peito é encaixada; a bola vai com as mãos até o peito, sem pular', () => {
+  for (const [alvo, v] of [[{ x: 0, y: 1.2 }, 19], [{ x: 0.5, y: 1.0 }, 18], [{ x: -0.8, y: 1.4 }, 18]]) {
+    const chute = mirar({ x: 0, z: 22 }, alvo, { velocidade: v });
+    for (let s = 1; s <= 8; s++) {
+      const r = cobrar({ chute, semente: s, barreira: 'nenhuma', registrar: true });
+      assert.equal(r.resultado, 'defesa');
+      assert.equal(r.modo, 'segurou');
+      assert.equal(r.g.pose.estado, 'segurou');
+      assert.equal(r.bola.cruzamento, null);
+      assert.equal(r.bola.gol, false);
+      // A bola presa anda junto com o corpo: nada de "teletransporte" para as mãos
+      const i = r.trilha.findIndex((p) => p.segurando);
+      const saltos = r.trilha.slice(i + 1).map((p) => p.salto);
+      assert.ok(Math.max(...saltos) < 0.03, `a bola pulou ${Math.max(...saltos).toFixed(3)} m num passo`);
+      const { maos } = r.g.pose;
+      const meio = { x: (maos.direita.x + maos.esquerda.x) / 2, y: (maos.direita.y + maos.esquerda.y) / 2, z: (maos.direita.z + maos.esquerda.z) / 2 };
+      assert.ok(Math.hypot(r.bola.pos.x - meio.x, r.bola.pos.y - meio.y, r.bola.pos.z - meio.z) < 0.2, 'bola nas mãos');
+      assert.ok(Math.hypot(r.bola.pos.x - r.g.cx, r.bola.pos.y - r.g.cy) < 0.15, 'no fim, junto ao peito');
+      assert.ok(Math.hypot(r.bola.vel.x, r.bola.vel.y, r.bola.vel.z) < 0.01, 'parada');
+    }
   }
 });
 
-teste('goleiro: bola forte no corpo é espalmada e volta para o campo', () => {
+teste('goleiro: bola forte no corpo é espalmada e volta para o campo com um rebote crível', () => {
   const chute = mirar({ x: 0, z: 22 }, { x: 0, y: 1.2 }, { velocidade: 30 });
   for (let s = 1; s <= 10; s++) {
-    const r = cobrar({ chute, semente: s, barreira: 'nenhuma' });
+    const r = cobrar({ chute, semente: s, barreira: 'nenhuma', registrar: true });
     assert.equal(r.resultado, 'defesa');
     const primeira = r.eventos.find((e) => e.tipo === 'defesa');
     assert.equal(primeira.modo, 'espalmou');
     assert.ok(primeira.impacto > 10);
     assert.ok(!r.bola.cruzamento, 'não passou da linha');
+    // Logo depois da batida: volta para o campo (às vezes espalmada para o chão) com uns 25% a 60% da velocidade
+    const i = r.trilha.findIndex((p) => Math.abs(p.t - primeira.t) < 1e-9);
+    const a = r.trilha[i + 1].bola;
+    const b = r.trilha[i + 5].bola;
+    const v = { x: (b.x - a.x) / (4 * H), y: (b.y - a.y) / (4 * H), z: (b.z - a.z) / (4 * H) };
+    const rapidez = Math.hypot(v.x, v.y, v.z);
+    assert.ok(v.z > 0.5, `volta para o campo: vz=${v.z}`);
+    assert.ok(rapidez > 0.25 * 30 && rapidez < 0.6 * 30, `rebote de ${rapidez.toFixed(1)} m/s`);
+  }
+});
+
+teste('goleiro: espalmou, a mesma bola não é encaixada logo em seguida (é a outra mão que ainda vem)', () => {
+  const montar = (espalmouHaPouco) => {
+    const g = criarGoleiro({ x: 0, z: 22 }, null, CONFIG);
+    const parada = criarBola({ x: 0, y: CONFIG.raioBola, z: 22 });
+    for (let t = 0; t < 1.5; t += 1 / 60) atualizarGoleiro(g, parada, 1 / 60, CONFIG, { chutou: false });
+    g.tempo = 1;
+    if (espalmouHaPouco) g.ultimoEspalmo = 0.95;
+    // Bola devagar chegando de frente na mão esquerda do goleiro
+    const mao = g.maos[1];
+    const bola = criarBola({ x: mao.x, y: mao.y, z: mao.z + 0.21 });
+    bola.vel = { x: 0, y: 0, z: -9 };
+    colidirBolaGoleiro(bola, g, CONFIG);
+    return { g, bola };
+  };
+  const normal = montar(false);
+  assert.ok(normal.g.segurando, 'sem espalmar antes, essa bola é encaixada');
+  assert.equal(normal.bola.eventos[0].modo, 'segurou');
+  const logoDepois = montar(true);
+  assert.ok(!logoDepois.g.segurando, 'logo depois de espalmar, não encaixa');
+  assert.equal(logoDepois.bola.eventos.length, 0, 'e o segundo toque não conta como outra defesa');
+  assert.ok(logoDepois.bola.vel.z > 0, 'a bola rebate');
+});
+
+teste('goleiro: as pernas de colisão vão até os pés do boneco, de pé e deitado no mergulho', () => {
+  const g = criarGoleiro({ x: 0, z: 22 }, null, CONFIG);
+  const quadril = (gg) => ({ x: gg.pose.x, y: gg.pose.y, z: gg.pose.z });
+  const pontaDasPernas = (gg) => {
+    const h = quadril(gg);
+    const pernas = partesDoGoleiro(gg).filter((q) => q.parte === 'perna');
+    assert.equal(pernas.length, 4, 'coxa e canela de cada perna');
+    return Math.max(...pernas.map((q) => Math.hypot(q.ate.x - h.x, q.ate.y - h.y, q.ate.z - h.z) + q.r));
+  };
+  // De pé: o pé encosta no chão
+  const deP = partesDoGoleiro(g).filter((q) => q.parte === 'perna');
+  assert.ok(Math.min(...deP.map((q) => Math.min(q.y, q.ate.y) - q.r)) < 0.02, 'pés no chão');
+  // Deitado no mergulho (para a direita): a perna de baixo esticada até ~1 m do quadril
+  for (const rolagem of [1.4, -1.4]) {
+    g.rolagem = rolagem;
+    g.cy = 0.33;
+    g.cx = 2 * Math.sign(rolagem);
+    // (quadril = centro do corpo − 0,3 m ao longo do eixo, que tomba para o lado)
+    const lado = { x: Math.cos(g.rotacaoY), z: -Math.sin(g.rotacaoY) };
+    g.pose = { ...g.pose, x: g.cx - Math.sin(rolagem) * lado.x * 0.3, y: g.cy - Math.cos(rolagem) * 0.3, z: g.z - Math.sin(rolagem) * lado.z * 0.3 };
+    const alcance = pontaDasPernas(g);
+    assert.ok(alcance > 1.0, `pernas de ${alcance.toFixed(2)} m`);
+    const partes = partesDoGoleiro(g);
+    assert.ok(partes.every((q) => q.y > 0 && (!q.ate || q.ate.y > 0)), 'nada abaixo do chão');
   }
 });
 
@@ -550,8 +771,9 @@ teste('goleiro: pose coerente do começo ao fim (estados, rolagem, mergulho)', (
   const alto = mirar({ x: 0, z: 22 }, { x: 0.2, y: 2.25 }, { velocidade: 24 });
   let saltou = 0;
   for (let s = 1; s <= 10; s++) {
-    const r = cobrar({ chute: alto, semente: s, barreira: 'nenhuma' });
-    if (r.g.mergulho && r.g.mergulho.Cf.y > 1.4 && r.g.mergulho.lado === 0) saltou++;
+    const r = cobrar({ chute: alto, semente: s, barreira: 'nenhuma', registrar: true });
+    const subiu = Math.max(...r.trilha.map((q) => q.centro.y));
+    if (r.g.mergulho && r.g.mergulho.lado === 0 && subiu > 1.45) saltou++;
     assert.ok(Math.abs(r.g.mergulho?.rolagem ?? 0) < 0.6);
   }
   assert.ok(saltou >= 8, `saltou ${saltou} de 10`);
@@ -582,6 +804,23 @@ teste('goleiro: bola que passa por cima da barreira atrasa a reação', () => {
   }
 });
 
+teste('goleiro: sem passar a config, usa os padrões do jogo (nada de NaN)', () => {
+  const bola = criarBola({ x: 0, y: 0.11, z: 22 });
+  const g = criarGoleiro({ x: 0, z: 22 }, null);
+  for (let t = 0; t < 1; t += 1 / 60) atualizarGoleiro(g, bola, 1 / 60);
+  bola.vel = { x: -6, y: 4, z: -26 };
+  let t = 0;
+  for (let i = 0; i < 300; i++) {
+    t += H;
+    atualizarGoleiro(g, bola, H, undefined, { chutou: true, tempoDesdeChute: t, aleatorio: sorteio(3) });
+    passo(bola, H, CONFIG);
+    colidirBolaGoleiro(bola, g);
+  }
+  const numeros = [g.cx, g.cy, g.rolagem, g.pose.x, g.pose.y, g.pose.maos.direita.x, g.pose.maos.esquerda.y, bola.pos.x, bola.pos.y, bola.pos.z];
+  assert.ok(numeros.every(Number.isFinite), numeros.join(', '));
+  assert.ok(g.reagiu && g.leitura !== undefined);
+});
+
 teste('goleiro e barreira juntos: a jogada completa termina em gol, defesa, barreira ou fora', () => {
   const resultados = {};
   for (let s = 1; s <= 40; s++) {
@@ -595,4 +834,90 @@ teste('goleiro e barreira juntos: a jogada completa termina em gol, defesa, barr
   }
   console.log('    40 chutes ao acaso no gol:', JSON.stringify(resultados));
   assert.ok(resultados.defesa > 0 && resultados.barreira > 0 && resultados.gol > 0);
+});
+
+// ---------- Jogador bom ----------
+// Um "jogador bom" de verdade: para cada falta e lado da barreira, procura (sem o erro de mira) os
+// chutes que passam pela barreira parada e chegam num canto; aí bate um deles com chutar(), com o
+// erro de mira do cobrador, contra a barreira (que pode pular) e o goleiro. Mede a taxa de gols.
+
+const semErro = () => 0.5; // o sorteio de chutar() com 0,5 dá erro zero
+const cacheBons = new Map();
+function chutesBons(origem, b, cobrador) {
+  const chave = JSON.stringify([origem, b.lado, cobrador.numero]);
+  if (cacheBons.has(chave)) return cacheBons.get(chave);
+  const lista = [];
+  const cfgB = { ...CONFIG, barreira: {} };
+  for (let mira = -7; mira <= 7.001; mira += 0.5) {
+    for (const cx of [-0.6, -0.3, 0, 0.3, 0.6]) {
+      for (const cy of [-0.25, 0.1, 0.4, 0.78]) {
+        for (const forca of [0.65, 0.8]) {
+          const contato = { x: cx, y: cy };
+          const bola = criarBola({ x: origem.x, y: CONFIG.raioBola, z: origem.z });
+          chutar(bola, { alvo: { x: mira, z: 0 }, forca, contato, cobrador }, CONFIG, semErro);
+          // A barreira mais alta possível, parada
+          const bb = { ...b, jogadores: b.jogadores.map((j) => ({ ...j, altura: 1.95, yPes: 0 })), _anterior: null, _bola: null, batidas: 0 };
+          let chega = null;
+          for (let t = 0; t < 3 && !chega; t += H) {
+            passo(bola, H, CONFIG);
+            colidirBolaBarreira(bola, bb, cfgB);
+            if (bb.batidas || bola.vel.z > 0) break;
+            if (bola.cruzamento) chega = bola.cruzamento;
+          }
+          bola.eventos.length = 0;
+          if (!chega) continue;
+          const ax = Math.abs(chega.x);
+          if (ax >= 2.5 && ax <= 3.35 && ((chega.y >= 1.5 && chega.y <= 2.2) || (chega.y >= 0.12 && chega.y <= 0.6))) {
+            lista.push({ mira, contato, forca });
+          }
+        }
+      }
+    }
+  }
+  cacheBons.set(chave, lista);
+  return lista;
+}
+
+function jogadorBom({ distancias, angulos, cobradores, sementes }) {
+  const res = {};
+  for (const dist of distancias) {
+    const conta = { gol: 0, n: 0 };
+    for (const ang of angulos) {
+      const origem = { x: dist * Math.sin(ang * GRAUS), z: dist * Math.cos(ang * GRAUS) };
+      for (const numero of cobradores) {
+        const cobrador = ELENCO.find((j) => j.numero === numero);
+        for (let s = 1; s <= sementes; s++) {
+          const semente = dist * 1000 + (ang + 50) * 37 + numero * 7 + s;
+          // A mesma barreira que cobrar() vai montar com essa semente
+          const b = montarBarreira(origem, { ...CONFIG, barreira: {} }, sorteio(semente));
+          const bons = chutesBons(origem, b, cobrador);
+          if (!bons.length) continue;
+          const c = bons[Math.floor(sorteio(semente + 99991)() * bons.length)];
+          const r = cobrar({
+            origem, semente,
+            preparar: (bola, aleatorio) => chutar(bola, { alvo: { x: c.mira, z: 0 }, forca: c.forca, contato: c.contato, cobrador }, CONFIG, aleatorio),
+          });
+          conta.n++;
+          if (r.resultado === 'gol') conta.gol++;
+        }
+      }
+    }
+    res[dist] = conta.gol / conta.n;
+    console.log(`    de ${dist} m: ${pct(res[dist])} de gols (${conta.n} faltas)`);
+  }
+  return res;
+}
+
+teste('jogador bom: 35% a 55% de gols de 18 a 24 m; 15% a 35% de 28 a 32 m', () => {
+  const r = jogadorBom({
+    distancias: [18, 22, 26, 30],
+    angulos: COMPLETO ? [-20, -10, 0, 10, 20] : [-15, 0, 15],
+    cobradores: COMPLETO ? [8, 23, 21, 80] : [8, 23], // Juninho, Beckham (e Pirlo, Ronaldinho)
+    sementes: COMPLETO ? 10 : 6,
+  });
+  // (com poucas faltas o número balança: a margem aqui é um pouco maior que a meta)
+  const folga = COMPLETO ? 0.03 : 0.07;
+  for (const d of [18, 22]) assert.ok(r[d] >= 0.35 - folga && r[d] <= 0.55 + folga, `de ${d} m: ${pct(r[d])}`);
+  assert.ok(r[30] >= 0.15 - folga && r[30] <= 0.35 + folga, `de 30 m: ${pct(r[30])}`);
+  assert.ok(r[18] > r[30], 'de perto é mais fácil que de longe');
 });

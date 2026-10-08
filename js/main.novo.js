@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, VERSAO } from './config.js?v=4';
 import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=4';
 import { ELENCO, sugerirCobradores } from './elenco.js?v=4';
-import { criarCenario } from './estadio.js?v=4';
+import { criarCenario, PADRAO_CENARIO } from './estadio.js?v=4';
 import { montarBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=4';
 import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO } from './goleiro.js?v=4';
 import {
@@ -19,7 +19,7 @@ CONFIG.goleiro = { ...PADRAO_GOLEIRO, ...(CONFIG.goleiro || {}) };
 CONFIG.barreira = { ...PADRAO_BARREIRA, ...(CONFIG.barreira || {}) };
 CONFIG.cobrador = { ...PADRAO_COBRANCA, ...(CONFIG.cobrador || {}) };
 CONFIG.audio = { ...PADRAO_AUDIO, ...(CONFIG.audio || {}) };
-CONFIG.cenario = { festaSegura: 1.6, festaDuracao: 3, redeMola: 70, redeAmortecimento: 8, ...(CONFIG.cenario || {}) };
+CONFIG.cenario = { ...PADRAO_CENARIO, ...(CONFIG.cenario || {}) };
 
 const GRAUS = Math.PI / 180;
 const PASSO_FISICA = 1 / 240; // a física roda em passos pequenos e fixos, independente do celular
@@ -743,7 +743,9 @@ function processarEventos() {
       }
     } else if (ev.tipo === 'trave' || ev.tipo === 'travessao') {
       jogada.batida = ev.tipo;
-      audio.trave(Math.min(1, (ev.impacto || 20) / 25));
+      const forca = Math.min(1, (ev.impacto || 20) / 25);
+      audio.trave(forca);
+      cenario.trave(forca);
     } else if (ev.tipo === 'rede' && !bola.entrouNoGol) {
       if (!jogada.redeFora) audio.rede(0.4);
       jogada.redeFora = true;
@@ -892,9 +894,18 @@ const giroVisual = new THREE.Quaternion();
 function atualizarBolaNaTela(dt) {
   const { pos, giro } = bola;
   bolaMesh.position.set(pos.x, pos.y, pos.z);
-  // Longe da câmera (na aérea) a bola fica um pouco maior na tela, para o olho não perder
+  // Longe da câmera (na aérea) a bola fica um pouco maior na tela, para o olho não perder.
+  // Perto do gol ela volta ao tamanho de verdade, para não "furar" traves e rede.
   const longe = camera.position.distanceTo(bolaMesh.position) / CONFIG.camera.bolaVisivelAte;
-  bolaMesh.scale.setScalar(Math.min(CONFIG.camera.bolaAumentoMax, Math.max(1, longe)));
+  let escala = Math.min(CONFIG.camera.bolaAumentoMax, Math.max(1, longe));
+  const meiaGol = CONFIG.golLargura / 2;
+  const foraDoGol = Math.hypot(
+    Math.max(0, Math.abs(pos.x) - meiaGol),
+    Math.max(0, pos.y - CONFIG.golAltura),
+    Math.max(0, pos.z, -CONFIG.golProfundidade - pos.z)
+  );
+  escala = 1 + (escala - 1) * Math.min(1, Math.max(0, (foraDoGol - 1) / 3));
+  bolaMesh.scale.setScalar(escala);
 
   // Gira a bola na tela com o giro da física (mais devagar, para o olho acompanhar)
   eixoGiro.set(giro.x, giro.y, giro.z).multiplyScalar(GIRO_VISUAL);
@@ -1007,6 +1018,7 @@ function quadro() {
   animarAdversarios(tempoTotal);
   atualizarBolaNaTela(dt);
   atualizarCamera(dt);
+  cenario.rede.bola(bola.pos, CONFIG.raioBola * bolaMesh.scale.x); // a rede de pano envolve a bola desenhada
   cenario.atualizar(dt);
   audio.atualizar(dt);
   rastro.visivel = CONFIG.rastro;

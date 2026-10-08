@@ -98,13 +98,7 @@ function misturarPoses(destino, a, b, k) {
 }
 const copiarPose = (destino, a) => misturarPoses(destino, a, a, 0);
 
-// Uma perna (frente, lado, joelho, tornozelo) da pose 'de' para 'para'
-function copiarPerna(destino, de) {
-  destino.frente = valor({ p: de }, 'p', 'frente');
-  destino.lado = valor({ p: de }, 'p', 'lado');
-  destino.joelho = valor({ p: de }, 'p', 'joelho');
-  destino.tornozelo = valor({ p: de }, 'p', 'tornozelo');
-}
+// Uma perna (frente, lado, joelho, tornozelo): destino = a + (b − a)·k
 function misturarPerna(destino, a, b, k) {
   destino.frente = misturar(a.frente || 0, b.frente || 0, k);
   destino.lado = misturar(a.lado || 0, b.lado || 0, k);
@@ -173,7 +167,7 @@ const G_ESPERA = {
   apoio: 0,
 };
 const G_PRONTO = {
-  tronco: { frente: 0.34 }, cabeca: { frente: -0.3 }, quadril: { frente: 0.12 },
+  tronco: { frente: 0.24 }, cabeca: { frente: -0.22 }, quadril: { frente: 0.12 },
   bracoE: { frente: 0.6, lado: 0.35, cotovelo: 1.0 }, bracoD: { frente: 0.6, lado: 0.35, cotovelo: 1.0 },
   pernaE: { frente: 0.4, lado: 0.14, joelho: 0.85, tornozelo: 0.4 }, pernaD: { frente: 0.25, lado: 0.14, joelho: 0.65, tornozelo: 0.4 },
   apoio: 0,
@@ -188,6 +182,13 @@ const PERNA_CHAO_BAIXO = { frente: 0.8, lado: -0.04, joelho: 1.2, tornozelo: 0.3
 const PERNA_ABRACO_CIMA = { frente: 1.05, lado: 0.06, joelho: 1.35, tornozelo: 0.3 };
 const PERNA_ABRACO_BAIXO = { frente: 1.15, lado: -0.03, joelho: 1.6, tornozelo: 0.3 };
 // Levantar do chão: de joelhos, um joelho levantado e de pé
+// Ainda de lado, joelhos encolhidos para levantar (as mãos empurram o chão)
+const G_ENCOLHIDO = {
+  tronco: { frente: 0.4 }, cabeca: { frente: -0.1 }, quadril: { frente: 0.2 },
+  bracoE: { frente: 0.9, lado: 0.3, cotovelo: 0.9 }, bracoD: { frente: 0.9, lado: 0.3, cotovelo: 0.9 },
+  pernaE: { frente: 1.1, lado: 0.08, joelho: 1.7, tornozelo: 0.6 }, pernaD: { frente: 1.0, lado: 0.12, joelho: 1.6, tornozelo: 0.6 },
+  apoio: 0,
+};
 const G_AJOELHADO = {
   tronco: { frente: 0.32 }, cabeca: { frente: -0.12 }, quadril: { frente: 0.06 },
   bracoE: { frente: 0.55, lado: 0.22, cotovelo: 0.45 }, bracoD: { frente: 0.55, lado: 0.22, cotovelo: 0.45 },
@@ -215,8 +216,8 @@ const G_FRUSTRADO = {
 };
 
 // Medidas do jeito de ficar de pé (fração do quadril de pé e metros)
-const ALTURA_ESPERA = 0.9;   // quadril a 90% da altura de pé: meio agachado, esperando
-const ALTURA_PRONTO = 0.855; // posição de defesa: mais baixo
+const ALTURA_ESPERA = 0.88;  // quadril a 88% da altura de pé: meio agachado, esperando
+const ALTURA_PRONTO = 0.87;  // posição de defesa: mais baixo
 const ALTURA_DE_PE = 0.97;
 const LARGURA_ESPERA = 0.23; // m do meio até o bico de cada pé
 const LARGURA_PRONTO = 0.27;
@@ -229,7 +230,6 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
   const J = personagem.juntas;
   const grupo = personagem.grupo;
   const ESC = J.quadril.parent.scale; // escala do corpo: (√e, e, √e)
-  const QUADRIL_LOCAL = personagem.alturaQuadril / ESC.y; // pivô da bacia de pé, no espaço do corpo
   const COXA = -J.joelhoE.position.y;
   const CANELA = -J.tornozeloE.position.y;
   const BRACO_TOTAL = -J.cotoveloE.position.y - J.punhoE.position.y + MAO_CENTRO;
@@ -239,8 +239,6 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
   const sondas = montarSondas(J);
 
   const pose = novaPose();
-  const poseA = novaPose();
-  const poseB = novaPose();
   const poseLev = novaPose(); // pose de quando começou a levantar
 
   function novoPe(lado) {
@@ -256,7 +254,8 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       tau: 0,                     // calcanhar levantado (rad)
       tauBase: 0,
       peso: 0,                    // 1 = perna pelo IK (pé no chão ou no passo); 0 = pela pose
-      ik: { frente: 0, lado: 0, joelho: 0 },
+      qIK: new THREE.Quaternion(),
+      joIK: 0,
       casa: new THREE.Vector3(),
       erro: 0,
     };
@@ -277,6 +276,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
   const velBolaAnt = new THREE.Vector3();
   const cab = { f: 0, g: 0, iniciada: false };
   let s = null; // estado da cobrança (zerado em reiniciar)
+  let cobrancas = 0;
 
   function reiniciar() {
     s = {
@@ -299,7 +299,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       posLance: false,
       fimDesde: -1,
       temVelBola: false,
-      sorteio: criarSorteio(Math.floor(Math.random() * 1e9)),
+      sorteio: criarSorteio(Math.floor((opcoes.semente ?? Math.random()) * 1e9) + (cobrancas += 1)),
       proximoAjuste: 2.6,
       ultimoPasso: -1,
       modo: 'espera',
@@ -323,7 +323,10 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     maosPresas: false,    // as luvas seguem as mãos da colisão neste quadro
     menorY: 0,            // m: ponto mais baixo de pé, joelho e quadril
     menorSola: 0,         // m: ponto mais baixo das solas
+    deslocamento: 0,      // m: quanto o corpo desenhado saiu do lugar da lógica para a mão alcançar
     pesPlantados: { E: false, D: false },
+    estadosPes: { E: 'solto', D: 'solto' },
+    parteMaisBaixa: '',
     bicos: { E: new THREE.Vector3(), D: new THREE.Vector3() },
   };
 
@@ -443,24 +446,46 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     );
   }
 
-  // Ângulos da perna (frente, lado, joelho) para o tornozelo chegar em 'alvo' (mundo).
-  // Devolve quanto falta (m, no espaço do corpo) se não alcança.
-  function ikPerna(pe, alvo, destino) {
-    _v.copy(alvo);
-    J.quadril.worldToLocal(_v);
-    _v.sub(pe.perna.position);
-    const dist = _v.length() || 1e-6;
+  // IK de dois ossos com polo (como o braço em js/jogadores.js): a coxa e o joelho para o tornozelo
+  // chegar em 'alvo' (mundo), com o joelho apontando para a frente do pé (a coxa gira se precisar).
+  // Guarda em pe.qIK (rotação da coxa no espaço do quadril) e pe.joIK. Devolve quanto falta (m) se não alcança.
+  const _alvoL = new THREE.Vector3();
+  const _polo = new THREE.Vector3();
+  const _dK = new THREE.Vector3();
+  const _canela = new THREE.Vector3();
+  const _eX = new THREE.Vector3();
+  const _eY = new THREE.Vector3();
+  const _eZ = new THREE.Vector3();
+  const _base = new THREE.Matrix4();
+  const _qQuadril = new THREE.Quaternion();
+  function ikPerna(pe, alvo) {
+    _alvoL.copy(alvo);
+    J.quadril.worldToLocal(_alvoL);
+    _alvoL.sub(pe.perna.position);
+    const dist = _alvoL.length() || 1e-6;
     const max = (COXA + CANELA) * 0.9995;
     const d = limitar(dist, Math.abs(COXA - CANELA) + 0.02, max);
-    const cosJ = limitar((d * d - COXA * COXA - CANELA * CANELA) / (2 * COXA * CANELA), -1, 1);
-    const jo = Math.acos(cosJ);
-    const alfa = Math.atan2(CANELA * Math.sin(jo), COXA + CANELA * Math.cos(jo));
-    const ca = Math.cos(alfa);
-    const phi = Math.asin(limitar(_v.x / (dist * Math.max(ca, 1e-3)), -1, 1));
-    const beta = Math.atan2(Math.sin(alfa), ca * Math.cos(phi));
-    destino.frente = Math.atan2(_v.z, -_v.y) + beta;
-    destino.lado = phi * pe.s;
-    destino.joelho = jo;
+    _alvoL.multiplyScalar(1 / dist); // direção do quadril até o alvo
+    // Polo: frente do pé (no espaço do quadril), um pouco para fora e para cima
+    J.quadril.getWorldQuaternion(_qQuadril).invert();
+    _polo.set(Math.sin(pe.yaw), 0, Math.cos(pe.yaw)).applyQuaternion(_qQuadril);
+    _polo.x += pe.s * 0.15;
+    _polo.y += 0.1;
+    _polo.addScaledVector(_alvoL, -_polo.dot(_alvoL));
+    if (_polo.lengthSq() < 1e-6) _polo.set(0, 0, 1).addScaledVector(_alvoL, -_alvoL.z);
+    _polo.normalize();
+    const cosA = limitar((COXA * COXA + d * d - CANELA * CANELA) / (2 * COXA * d), -1, 1);
+    _dK.copy(_alvoL).multiplyScalar(cosA).addScaledVector(_polo, Math.sqrt(1 - cosA * cosA));
+    _canela.copy(_alvoL).multiplyScalar(d).addScaledVector(_dK, -COXA).normalize();
+    // Base da coxa: −y local vai do quadril ao joelho; +z local é a frente do joelho (contrário da canela)
+    _eZ.copy(_canela).addScaledVector(_dK, -_canela.dot(_dK)).negate();
+    if (_eZ.lengthSq() < 1e-8) _eZ.copy(_polo);
+    _eZ.normalize();
+    _eY.copy(_dK).negate();
+    _eX.crossVectors(_eY, _eZ);
+    _base.makeBasis(_eX, _eY, _eZ);
+    pe.qIK.setFromRotationMatrix(_base);
+    pe.joIK = Math.acos(limitar((d * d - COXA * COXA - CANELA * CANELA) / (2 * COXA * CANELA), -1, 1));
     return Math.max(0, dist - max);
   }
 
@@ -472,23 +497,23 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       if (pe.estado !== 'solto') {
         let tau = pe.tau;
         tornozeloDoBico(pe.bico, pe.yaw, tau, _v2);
-        let falta = ikPerna(pe, _v2, pe.ik);
-        // Perna esticada demais: sobe o calcalhar (impulso na ponta do pé); se nem assim, o pé sai do chão
+        let falta = ikPerna(pe, _v2);
+        // Perna esticada demais: sobe o calcanhar (impulso na ponta do pé); se nem assim, o pé sai do chão
         if (falta > 0 && pe.estado === 'plantado') {
           for (let k = 1; k <= 4 && falta > 0; k++) {
             tau = Math.min(1.1, pe.tau + 0.28 * k);
             tornozeloDoBico(pe.bico, pe.yaw, tau, _v2);
-            falta = ikPerna(pe, _v2, pe.ik);
+            falta = ikPerna(pe, _v2);
           }
           pe.tau = tau;
           if (falta > 0.004) soltar(pe);
         }
       }
       const w = pe.peso;
-      const f = misturar(fk.frente, pe.ik.frente, w);
-      const l = misturar(fk.lado, pe.ik.lado, w);
-      const j = misturar(fk.joelho, pe.ik.joelho, w);
-      pe.perna.rotation.set(-f, 0, pe.s * l);
+      // Coxa: da pose (ângulos) até o IK (rotação), joelho idem
+      _e.set(-fk.frente, 0, pe.s * fk.lado, 'XZY');
+      pe.perna.quaternion.setFromEuler(_e).slerp(pe.qIK, w);
+      const j = misturar(fk.joelho, pe.joIK, w);
       pe.joelho.rotation.set(j, 0, 0);
       // Pé: no chão, a sola fica rente ao gramado (virada para pe.yaw, com o calcanhar levantado tau)
       _q2.setFromAxisAngle(EIXO_Y, pe.yaw);
@@ -496,7 +521,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       _q2.multiply(_q); // alvo no mundo
       _q.copy(grupo.quaternion).multiply(J.quadril.quaternion).multiply(pe.perna.quaternion).multiply(pe.joelho.quaternion).invert();
       _q.multiply(_q2); // rotação do tornozelo para o pé ficar como o alvo
-      _e.set(f - j - pose.quadril.frente + fk.tornozelo, 0, 0, 'XZY');
+      _e.set(fk.frente - fk.joelho - pose.quadril.frente + fk.tornozelo, 0, 0, 'XZY');
       pe.tornozelo.quaternion.setFromEuler(_e).slerp(_q, w);
     }
   }
@@ -540,17 +565,20 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
   }
   // Inclina e gira o tronco (um pouco) para os ombros chegarem perto das mãos da colisão.
   // Devolve no 'destino' o quanto o corpo ainda precisa andar para a mão mais longe alcançar.
+  const base = { fr: 0, gi: 0, la: 0 };
+  const custoTronco = (a, b, c) => excessoBracos(a, b, c)
+    + 0.002 * ((a - base.fr) ** 2 + (b - base.gi) ** 2 + (c - base.la) ** 2);
   function ajudarBracos(destino) {
     destino.set(0, 0, 0);
     const r = J.tronco.rotation;
-    const base = { fr: r.x, gi: r.y, la: r.z };
+    base.fr = r.x;
+    base.gi = r.y;
+    base.la = r.z;
     let fr = r.x;
     let gi = r.y;
     let la = r.z;
-    const custo = (a, b, c) => excessoBracos(a, b, c)
-      + 0.002 * ((a - base.fr) ** 2 + (b - base.gi) ** 2 + (c - base.la) ** 2);
-    let atual = custo(fr, gi, la);
     if (excessoBracos(fr, gi, la) <= 0) return;
+    let atual = custoTronco(fr, gi, la);
     for (const passo of PASSOS_BUSCA) {
       for (let rep = 0; rep < 3; rep++) {
         let melhorou = false;
@@ -559,7 +587,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
             const a = eixo === 0 ? limitar(fr + sinal * passo, base.fr - 0.5, base.fr + 0.8) : fr;
             const b = eixo === 1 ? limitar(gi + sinal * passo, base.gi - 0.9, base.gi + 0.9) : gi;
             const c = eixo === 2 ? limitar(la + sinal * passo, base.la - 0.75, base.la + 0.75) : la;
-            const novo = custo(a, b, c);
+            const novo = custoTronco(a, b, c);
             if (novo < atual - 1e-7) {
               atual = novo;
               fr = a;
@@ -607,24 +635,69 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
 
   // ---------- Transições (levantar, ajoelhar): poses-chave com o corpo encostado no chão ----------
 
+  const maosInicio = { D: new THREE.Vector3(), E: new THREE.Vector3() };
+  const pInicio = new THREE.Vector3();
   function comecarTransicao(chaves, dur, depois) {
     copiarPose(poseLev, pose);
-    s.transicao = { t0: s.tAgora, dur, chaves, depois, rol0: raiz.rol, p: raiz.p.clone(), yaw: raiz.yaw };
+    // Braços: as luvas começam onde estão (IK); a base deles não pode ser a dos braços esticados do mergulho
+    for (const lado of LADOS) {
+      const b = lado === 'E' ? poseLev.bracoE : poseLev.bracoD;
+      const ref = chaves[0].pose[lado === 'E' ? 'bracoE' : 'bracoD'] || G_PRONTO.bracoE;
+      b.frente = ref.frente || 0;
+      b.lado = ref.lado ?? 0.1;
+      b.cotovelo = ref.cotovelo || 0;
+    }
+    // As luvas saem de onde estão (e não da pose de base dos braços)
+    const deitado = Math.abs(raiz.rol) > 0.6;
+    for (const lado of LADOS) {
+      _v.copy(PALMA_LUVA);
+      punhos[lado].localToWorld(maosInicio[lado].copy(_v));
+    }
+    pInicio.copy(raiz.p);
+    s.transicao = { t0: s.tAgora, dur, chaves, depois, rol0: raiz.rol, p: pInicio, yaw: raiz.yaw, empurra: deitado };
     for (const pe of PES) soltar(pe);
   }
+  // Mãos na transição: deitado, saem de onde estavam e apoiam no chão na frente do peito para
+  // empurrar o corpo; depois soltam (a pose manda)
+  function maosDaTransicao(tr) {
+    const u = limitar((s.tAgora - tr.t0) / tr.dur, 0, 1);
+    const w = tr.empurra ? 1 - suave((u - 0.42) / 0.16) : 1 - suave(u / 0.15);
+    pesoMao.D = pesoMao.E = w;
+    if (w <= 0) return;
+    const k = suave(u / 0.14);
+    const c = Math.cos(raiz.yaw);
+    const sn = Math.sin(raiz.yaw);
+    // Peito projetado no chão, um pouco à frente; uma mão de cada lado
+    _v.set(0, 0.42, 0).applyMatrix4(J.tronco.matrixWorld);
+    for (const lado of LADOS) {
+      const l = (lado === 'E' ? 1 : -1) * 0.17;
+      _v2.set(_v.x + l * c + 0.3 * sn, 0.07, _v.z - l * sn + 0.3 * c);
+      if (!tr.empurra) _v2.copy(maosInicio[lado]);
+      alvoMao[lado].copy(maosInicio[lado]).lerp(_v2, k);
+    }
+  }
+  const resultadoTransicao = { u: 0, rol: 0 };
   function poseDaTransicao(tr, destino) {
     const u = limitar((s.tAgora - tr.t0) / tr.dur, 0, 1);
-    let anterior = { u: 0, pose: poseLev, rol: tr.rol0 };
+    let uA = 0;
+    let poseA = poseLev;
+    let rolA = tr.rol0;
+    resultadoTransicao.u = u;
     for (const ch of tr.chaves) {
+      const rolB = ch.fracao ? ch.rol * tr.rol0 : ch.rol;
       if (u <= ch.u) {
-        const k = suave((u - anterior.u) / Math.max(1e-6, ch.u - anterior.u));
-        misturarPoses(destino, anterior.pose, ch.pose, k);
-        return { u, rol: misturar(anterior.rol, ch.rol, k) };
+        const k = suave((u - uA) / Math.max(1e-6, ch.u - uA));
+        misturarPoses(destino, poseA, ch.pose, k);
+        resultadoTransicao.rol = misturar(rolA, rolB, k);
+        return resultadoTransicao;
       }
-      anterior = ch;
+      uA = ch.u;
+      poseA = ch.pose;
+      rolA = rolB;
     }
-    copiarPose(destino, anterior.pose);
-    return { u, rol: anterior.rol };
+    copiarPose(destino, poseA);
+    resultadoTransicao.rol = rolA;
+    return resultadoTransicao;
   }
 
   // ---------- Quadro ----------
@@ -651,7 +724,6 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     if (antes && fase !== 'corrida') s.tEspera += dt;
     const estado = gp.estado || 'pronto';
     const rolLogica = gp.rolagem || 0;
-    const deitado = Math.abs(rolLogica) > 0.75 && gp.y < 0.62;
     if (s.refY === null || (antes && fase !== 'corrida')) s.refY = s.refY === null ? gp.y : aproximar(s.refY, gp.y, 1.5, dt);
 
     // Bola: toques no goleiro (mudança brusca de velocidade perto das mãos ou do corpo) e gol
@@ -745,7 +817,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       pesoLocal.D = pesoLocal.E = 1;
       for (const pe of PES) pe.tauBase = 0.06;
       if (!corrida) {
-        gestosEspera(g, gp, t);
+        gestosEspera(g, gp);
         // Ajustes de passo de vez em quando (pequenos)
         if (s.tEspera > s.proximoAjuste && pes.E.estado === 'plantado' && pes.D.estado === 'plantado') {
           const pe = s.sorteio() < 0.5 ? pes.E : pes.D;
@@ -771,7 +843,11 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       alturaDesejada = ALTURA_PRONTO;
       largura = LARGURA_PRONTO;
       limiarPasso = 0.09;
+      // Mãos: do pulinho de prontidão em diante, as luvas ficam nas mãos da colisão
       pesoLogica = suave((tc + 0.2) / 0.25);
+      localMao.E.set(0.25, 0.16, 0.36);
+      localMao.D.set(-0.25, 0.16, 0.36);
+      pesoLocal.D = pesoLocal.E = 1;
       for (const pe of PES) pe.tauBase = 0.12;
       // Inclina para o lado do passo
       const vLat = vel.x * Math.cos(yaw) - vel.z * Math.sin(yaw);
@@ -795,7 +871,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       }
       espalmadaNoCorpo();
     } else if (modo === 'mergulho') {
-      montarMergulho(gp, dt, estado, deitado);
+      montarMergulho(gp, dt, estado);
       modoChao = s.mergulho.modoChao;
       pesoLogica = 1;
       rapidezCabeca = 18;
@@ -809,7 +885,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       olharPeso = 1;
       if (r.u >= 1) terminarTransicao(tr);
     } else if (modo === 'posLance') {
-      montarPosLance(gp, t, dt);
+      montarPosLance(t);
       alturaDesejada = s.reacao && s.reacao.tipo === 'vibrar' ? ALTURA_DE_PE - 0.04 : ALTURA_DE_PE;
       largura = LARGURA_DE_PE + 0.04;
       limiarPasso = 0.12;
@@ -822,7 +898,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     pose.maoD.peso = 0;
 
     // Reação depois do lance (quando o jogo já decidiu, ou ele ficou um tempo parado)
-    decidirReacao(gp, fase, estado, deitado, modo);
+    decidirReacao(gp, fase, estado, modo);
 
     // ---------- Raiz (onde fica o quadril) ----------
     const emPe = modo === 'espera' || modo === 'corrida' || modo === 'dePe' || modo === 'posLance';
@@ -840,9 +916,10 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       // O quadril segue o da lógica; a diferença de altura de quem está de pé some no impulso
       const m = s.mergulho;
       const k = suave((s.tAgora - m.t0) / 0.18);
-      raiz.p.set(gp.x, gp.y + (s.offY || 0) * (1 - k), gp.z);
+      const kp = m.kEmPe || 0; // pousou de pé: volta a altura de quem está de pé
+      raiz.p.set(gp.x, gp.y + (s.offY || 0) * Math.max(1 - k, kp), gp.z);
       raiz.yaw = yaw;
-      raiz.rol = rolLogica;
+      raiz.rol = rolLogica * (1 - kp);
     } else if (modo === 'transicao') {
       const tr = trQuadro;
       raiz.p.x = tr.p.x;
@@ -882,7 +959,11 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     personagem.aplicarPose(pose);
     // Mãos: as da colisão (mundo) misturadas com as dos gestos (espaço do tronco)
     prepararMaos(gp, pesoLogica, bola, estado);
-    for (let passe = 0; passe < 2; passe++) {
+    if (modo === 'transicao' && trQuadro) {
+      grupo.updateMatrixWorld(true);
+      maosDaTransicao(trQuadro);
+    }
+    for (let passe = 0; passe < 3; passe++) {
       colocarGrupo(bob);
       grupo.updateMatrixWorld(true);
       aplicarPernas();
@@ -901,10 +982,10 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
             grupo.updateMatrixWorld(true);
           }
         }
-        if (modo === 'mergulho') registrarChao(menor + ajuste, dt);
+        if (modo === 'mergulho') registrarChao(menor + ajuste);
       }
       // As mãos presas na colisão: o tronco ajuda; se nem assim, o corpo vai um pouco até elas
-      if (pesoLogica > 0.5 && passe === 0) {
+      if (pesoLogica > 0.5 && passe < 2) {
         ajudarBracos(_v3);
         if (_v3.lengthSq() > 1e-6) {
           desloc.add(_v3);
@@ -914,6 +995,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       }
       break;
     }
+    saida.deslocamento = desloc.length();
     desloc.multiplyScalar(Math.exp(-5 * dt));
     grupo.updateMatrixWorld(true);
 
@@ -929,17 +1011,27 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       punhos[s.contato.mao].rotation.x = flick;
     }
 
-    // Mãos
+    // Mãos: o IK leva o meio da mão ao alvo; uma segunda passada corrige a diferença até o meio
+    // da palma da luva (e o estalo do punho), para a luva ficar em cima da mão da colisão
     for (const lado of LADOS) {
-      const peso = Math.max(pesoMao[lado], pesoLocal[lado]);
-      if (peso > 0.001) personagem.alcancar(lado, alvoMao[lado], 1);
+      const peso = Math.min(1, Math.max(pesoMao[lado], pesoLocal[lado]));
+      if (peso <= 0.001) continue;
+      personagem.alcancar(lado, alvoMao[lado], peso);
+      if (peso < 0.999) continue;
+      ombros[lado].updateMatrixWorld(true);
+      _v.copy(PALMA_LUVA);
+      punhos[lado].localToWorld(_v);
+      _v2.copy(alvoMao[lado]).multiplyScalar(2).sub(_v);
+      personagem.alcancar(lado, _v2, 1);
     }
 
     // Sombra: embaixo do meio do corpo
     _v.set(0, 0.25, 0).applyMatrix4(J.tronco.matrixWorld);
     saida.sombra.x = _v.x;
     saida.sombra.z = _v.z;
-    saida.sombra.escala = limitar(1.15 - 0.5 * Math.max(0, grupo.position.y), 0.5, 1.2);
+    // (menor quando ele sobe; o quadril de pé fica a ~0,9 m)
+    _v2.setFromMatrixPosition(J.quadril.matrixWorld);
+    saida.sombra.escala = limitar(1.1 - 0.7 * Math.max(0, _v2.y - personagem.alturaQuadril * ALTURA_ESPERA), 0.55, 1.1);
     saida.maosPresas = pesoLogica > 0.999 && pesoMao.D > 0.999;
     if (diagnostico) medir(gp);
     return saida;
@@ -954,7 +1046,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
 
   // ---------- Antes do chute: gestos ----------
 
-  function gestosEspera(g, gp, t) {
+  function gestosEspera(g, gp) {
     const te = s.tEspera;
     // Organiza a barreira: aponta para ela e olha
     const b = g && g.barreira;
@@ -969,7 +1061,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
           mz += j.z / b.jogadores.length;
         }
         // Braço do lado da barreira, apontando (com dois toques de "vai, fecha aí")
-        const ladoB = lateral({ x: mx, z: mz }, gp.x, gp.z, gp.rotacaoY || 0) > 0 ? 'E' : 'D';
+        const ladoB = lateral(_v3.set(mx, 0, mz), gp.x, gp.z, gp.rotacaoY || 0) > 0 ? 'E' : 'D';
         const sl = ladoB === 'E' ? 1 : -1;
         const toque = 0.06 * Math.sin(u * Math.PI * 6);
         // (a mão vai na direção da barreira: montada em prepararMaos)
@@ -1039,7 +1131,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
 
   // ---------- Mergulho ----------
 
-  function montarMergulho(gp, dt, estado, deitado) {
+  function montarMergulho(gp, dt, estado) {
     const m = s.mergulho;
     const sl = m.s;
     const tm = s.tAgora - m.t0;
@@ -1088,9 +1180,24 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       const lat = lateral(perto.bico, gp.x, gp.z, gp.rotacaoY || 0);
       if (hora || sl * lat < -0.05) soltar(perto);
     }
-    // Pousou de pé (mergulho curto, sem deitar): os pés voltam ao chão
+    // Pousou de pé (mergulho curto, sem deitar): o corpo endireita e os pés voltam ao chão
     m.modoChao = kChao > 0.55 ? 'encosta' : 'livre';
-    const emPeDeNovo = Math.abs(gp.rolagem || 0) < 0.45 && y > 0.75 && tm > 0.35 && vel.y <= 0.2;
+    if (!m.pousouDePe && kChao < 0.2 && Math.abs(gp.rolagem || 0) < 0.85 && y > 0.68 && tm > 0.3
+      && (estado === 'caido' || estado === 'segurou')) {
+      m.pousouDePe = true;
+    }
+    m.kEmPe = aproximar(m.kEmPe || 0, m.pousouDePe ? 1 : 0, 7, dt);
+    if (m.kEmPe > 0.01) {
+      const k = m.kEmPe;
+      misturarPerna(cima, cima, G_PRONTO.pernaE, k);
+      misturarPerna(baixo, baixo, G_PRONTO.pernaD, k);
+      pose.tronco.frente = misturar(pose.tronco.frente, 0.3, k);
+      pose.tronco.lado *= 1 - k;
+      pose.tronco.giro *= 1 - k;
+      pose.quadril.lado *= 1 - k;
+      pose.quadril.frente = misturar(pose.quadril.frente, 0.1, k);
+    }
+    const emPeDeNovo = m.pousouDePe;
     if (emPeDeNovo) {
       const alcanceY = (COXA + CANELA) * ESC.y * 0.95 + 0.07 * ESC.y;
       for (const pe of PES) {
@@ -1115,13 +1222,9 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
         pose.tronco.lado += 0.06 * a * sl;
       }
     }
-    // Depois do gol, deitado: soca o gramado com a mão de cima
-    if (s.reacao && s.reacao.tipo === 'soco') {
-      // (as mãos são montadas em prepararMaos)
-    }
   }
 
-  function registrarChao(menor, dt) {
+  function registrarChao(menor) {
     if (!s.chao.tocou && menor < 0.012 && s.mergulho && s.mergulho.kChao > 0.3) {
       s.chao.tocou = true;
       s.chao.t = s.tAgora;
@@ -1146,16 +1249,16 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       // Espalmada: o braço segue o movimento da bola por um instante
       const uC = (s.tAgora - s.contato.t) / 0.35;
       if (m && s.contato.t >= 0 && uC < 1 && estado !== 'segurou' && s.contato.maos && s.contato.mao === lado) {
-        alvoMao[lado].addScaledVector(s.contato.dir, 0.09 * envelope(uC, 0.25, 0.4));
+        alvoMao[lado].addScaledVector(s.contato.dir, 0.03 * envelope(uC, 0.25, 0.4));
       }
       // Soco no gramado depois do gol (mão de cima)
       if (s.reacao && s.reacao.tipo === 'soco' && s.mergulho) {
         const cima = s.mergulho.s > 0 ? 'D' : 'E';
         if (lado === cima) {
-          const u = (s.tAgora - s.reacao.t0) / 1.2;
+          const u = (s.tAgora - s.reacao.t0) / 0.95;
           const k = envelope(u, 0.15, 0.85);
           // Bate duas vezes: sobe devagar e desce com força
-          const ciclo = (u * 2.2) % 1;
+          const ciclo = (u * 2.1) % 1;
           const alto = ciclo < 0.65 ? suave(ciclo / 0.65) : 1 - ((ciclo - 0.65) / 0.35) ** 2;
           _v.set(0, 0.32, 0.38).applyMatrix4(J.quadril.matrixWorld);
           _v.y = 0.06 + 0.32 * alto;
@@ -1189,7 +1292,12 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
 
   // ---------- Depois do lance ----------
 
-  function decidirReacao(gp, fase, estado, deitado, modo) {
+  function decidirReacao(gp, fase, estado, modo) {
+    if (s.reacao && s.reacao.tipo === 'soco' && !s.transicao && s.tAgora - s.reacao.t0 > 0.95) {
+      s.reacao = { tipo: 'frustrado', t0: s.tAgora };
+      comecarTransicao(chavesAjoelharDoChao(), 0.95, 'frustrado');
+      return;
+    }
     if (s.reacao || s.transicao) return;
     if (modo === 'espera' || modo === 'corrida') return;
     const acabou = fase === 'fim';
@@ -1203,13 +1311,18 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
         return;
       }
       const noChao = s.tAgora - s.chao.t;
-      if (!(acabou && noChao > 0.35) && !(estado === 'caido' && noChao > 1.4)) return;
+      if (!(acabou && noChao > (s.gol ? 0.2 : 0.35)) && !(estado === 'caido' && noChao > 1.4)) return;
       if (s.gol) {
-        s.reacao = { tipo: 'soco', t0: s.tAgora };
+        // Gol: bate a mão no gramado, ou fica um instante no chão e ajoelha frustrado
+        if (s.sorteio() < 0.55) s.reacao = { tipo: 'soco', t0: s.tAgora };
+        else {
+          s.reacao = { tipo: 'frustrado', t0: s.tAgora };
+          comecarTransicao(chavesAjoelharDoChao(), 1.1, 'frustrado');
+        }
       } else if (s.tocou) {
-        comecarTransicao(chavesLevantar(true), 0.8, 'vibrar');
+        comecarTransicao(chavesLevantar(), 0.95, 'vibrar');
       } else {
-        comecarTransicao(chavesLevantar(false), 1.0, 'neutro');
+        comecarTransicao(chavesLevantar(), 1.15, 'neutro');
       }
       return;
     }
@@ -1228,22 +1341,30 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     else s.reacao = { tipo: 'neutro', t0: s.tAgora };
   }
 
-  const CHAVE_AJOELHADO = { u: 0.42, pose: G_AJOELHADO, rol: 0 };
-  function chavesLevantar(rapido) {
+  // Levantar do chão: encolhe as pernas ainda de lado, apoia as mãos e fica de joelhos, põe um pé
+  // na frente e fica de pé. rol das chaves: fração da rolagem de quando começou.
+  function chavesLevantar() {
     return [
-      { u: rapido ? 0.4 : 0.42, pose: G_AJOELHADO, rol: 0 },
-      { u: 0.7, pose: G_MEIO_JOELHO, rol: 0 },
+      { u: 0.28, pose: G_ENCOLHIDO, rol: 0.8, fracao: true },
+      { u: 0.5, pose: G_AJOELHADO, rol: 0 },
+      { u: 0.74, pose: G_MEIO_JOELHO, rol: 0 },
       { u: 1, pose: G_DE_PE, rol: 0 },
+    ];
+  }
+  function chavesAjoelharDoChao() {
+    return [
+      { u: 0.35, pose: G_ENCOLHIDO, rol: 0.8, fracao: true },
+      { u: 0.7, pose: G_AJOELHADO, rol: 0 },
+      { u: 1, pose: G_FRUSTRADO, rol: 0 },
     ];
   }
   function chavesAjoelhar() {
     return [{ u: 1, pose: G_FRUSTRADO, rol: 0 }];
   }
-  void CHAVE_AJOELHADO;
 
   function terminarTransicao(tr) {
     s.transicao = null;
-    if (tr.depois === 'frustrado' || tr.depois === 'segurar') {
+    if (tr.depois === 'frustrado') {
       // Fica de joelhos: congela a última pose (continua encostado no chão)
       s.transicao = { ...tr, t0: s.tAgora - tr.dur, dur: tr.dur, chaves: [{ u: 1, pose: G_FRUSTRADO, rol: 0 }], depois: 'parado' };
       copiarPose(poseLev, G_FRUSTRADO);
@@ -1256,7 +1377,6 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     // De pé: planta os pés onde estão e passa para a reação
     s.posLance = true;
     s.reacao = { tipo: tr.depois || 'neutro', t0: s.tAgora };
-    raiz.p.copy(raiz.p);
     _v.set(0, 0, 0).applyMatrix4(J.quadril.matrixWorld);
     raiz.p.set(_v.x, _v.y, _v.z);
     for (const pe of PES) {
@@ -1266,7 +1386,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     }
   }
 
-  function montarPosLance(gp, t, dt) {
+  function montarPosLance(t) {
     const r = s.reacao || { tipo: 'neutro', t0: s.tAgora };
     const u = s.tAgora - r.t0;
     copiarPose(pose, G_DE_PE);
@@ -1290,8 +1410,6 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       // Neutro: braços soltos, acompanha a bola
       pose.tronco.frente += 0.05;
     }
-    void gp;
-    void dt;
   }
 
   // ---------- Medidas (para os testes) ----------
@@ -1304,6 +1422,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       const sd = sondas[i];
       if (!sd.regra) continue;
       _v.copy(sd.local).applyMatrix4(sd.junta.matrixWorld);
+      if (_v.y < menor) saida.parteMaisBaixa = sd.nome;
       menor = Math.min(menor, _v.y);
       if (sd.nome.startsWith('tornozelo')) menorSola = Math.min(menorSola, _v.y);
     }
@@ -1312,6 +1431,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     for (const pe of PES) {
       tornozelos[pe.lado].localToWorld(saida.bicos[pe.lado].set(BICO[0], BICO[1], BICO[2]));
       saida.pesPlantados[pe.lado] = pe.estado === 'plantado';
+      saida.estadosPes[pe.lado] = pe.estado;
     }
     let erro = 0;
     if (gp.maos) {
