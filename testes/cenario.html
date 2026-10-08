@@ -157,6 +157,7 @@
       const dist = Math.hypot(alvo.x - de.x, alvo.y - de.y, alvo.z - de.z);
       let T = dist / l.vel;
       let vel = { x: (alvo.x - de.x) / T, y: (alvo.y - de.y) / T + 0.5 * CONFIG.gravidade * T, z: (alvo.z - de.z) / T };
+      let chegada = T;
       for (let tentativa = 0; tentativa < 6; tentativa++) {
         const b = criarBola(de);
         b.vel = { ...vel };
@@ -166,12 +167,13 @@
           t += PASSO_FISICA;
         }
         if (t === 0) break;
+        chegada = t;
         const erroX = alvo.x - b.pos.x;
         const erroY = alvo.y - b.pos.y;
         vel.x += erroX / t;
         vel.y += erroY / t;
       }
-      return vel;
+      return { vel, chegada };
     }
     // Só o voo (sem gol, traves ou rede): para mirar
     function passoLivre(b, h) {
@@ -184,16 +186,16 @@
       b.pos.z += b.vel.z * h;
     }
 
-    // Solta uma bola (devolve em quantos segundos ela chega na linha do gol, mais ou menos)
+    // Solta uma bola (devolve em quantos segundos ela chega no alvo do lance: a rede, o teto ou o travessão)
     window.lance = (nome) => {
       const l = LANCES[nome];
       if (!l) return null;
       cenario.rede.reiniciar();
       cenario.torcida.festa(0);
       bolaFisica = criarBola({ x: l.de[0], y: l.de[1], z: l.de[2] });
-      bolaFisica.vel = mirar(l);
+      const { vel, chegada } = mirar(l);
+      bolaFisica.vel = vel;
       jogada = { nome, tempo: 0, gol: false, trave: false };
-      const chegada = l.de[2] / Math.max(1, -bolaFisica.vel.z);
       bola.position.set(l.de[0], l.de[1], l.de[2]);
       return { chegada };
     };

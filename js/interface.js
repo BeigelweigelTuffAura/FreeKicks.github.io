@@ -66,7 +66,7 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
         </div>
         <div class="cartao-ovr"><b>${overall(jogador)}</b><small>OVR</small></div>
       </div>
-      <div class="cartao-nota">${sugerido ? 'Sugerido · ' : ''}nota para esta falta <b>${Math.round(nota)}</b> · <u>trocar</u></div>`;
+      <div class="cartao-nota">${sugerido ? 'O mais indicado · ' : ''}nota para esta falta <b>${Math.round(nota)}</b> · <u>trocar</u></div>`;
   }
 
   function desenharLista() {

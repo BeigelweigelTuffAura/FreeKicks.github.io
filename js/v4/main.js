@@ -10,7 +10,7 @@ import {
   visualAdversario, VISUAL_GOLEIRO_ADVERSARIO, UNIFORMES, poseChute, poseComemoracao, poseLamento, misturarPoses,
 } from './jogadores.js?v=4';
 import { criarAudio, PADRAO_AUDIO } from './audio.js?v=4';
-import { criarInterface } from './interface.js?v=4';
+import { criarInterface } from './interface.js?v=5';
 import { criarPainel } from './painel.js?v=4';
 
 // Os padrões de goleiro, barreira, cobrador, som e cenário moram nos próprios módulos;
@@ -597,9 +597,9 @@ function novaCobranca() {
   // Mira começa no lado do gol que a barreira não cobre
   mira.x = -barreira.lado * 1.9;
 
-  // Cobrador sugerido para esta falta (com a falta fixa, mantém a escolha)
+  // Cobrador sorteado a cada falta (com a falta fixa, mantém a escolha); a lista mostra o sugerido
   const lista = sugerirCobradores(ELENCO, falta);
-  if (!cobrador || !estado.fixa) cobrador = lista[0].jogador;
+  if (!cobrador || !estado.fixa) cobrador = ELENCO[Math.floor(aleatorio() * ELENCO.length)];
   const nota = lista.find((x) => x.jogador === cobrador).nota;
   ui.mostrarCobrador(cobrador, nota, lista);
   vestirCobrador(cobrador);

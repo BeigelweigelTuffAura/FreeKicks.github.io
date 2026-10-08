@@ -1413,8 +1413,8 @@ export const PADRAO_CENARIO = {
   redeFirmeza: 6.5,   // m/s: velocidade das ondas na rede (mais = rede mais esticada: volta mais rápido)
   redeFreio: 2.4,     // quanto o balanço da rede perde por segundo (menos = balança mais vezes)
   redePeso: 1,        // peso da rede (mais = mais caída e balança mais pesada e lenta)
-  redeEstufa: 1,      // quanto o fundo estufa além da bola (0 = só onde a bola foi; 1 = uns 60 cm num chute forte)
-  redeEmpurrao: 1,    // quanto a bola "chuta" a rede quando bate nela (por fora, no teto, na lateral)
+  redeEstufa: 1,      // quanto o fundo estufa além da bola (0 = só onde a bola foi; 1 = uns 70 cm num chute forte)
+  redeEmpurrao: 1.5,  // quanto a bola "chuta" a rede quando bate nela (por fora, no teto, na lateral)
   traveTremor: 1,     // quanto o gol treme quando a bola bate na trave ou no travessão (0 = nada)
 };
 
@@ -1428,7 +1428,8 @@ const limitar = (v, a, b) => Math.min(b, Math.max(a, v));
 // Divisões de cada pano da rede do nosso gol (pontos = divisões + 1 em cada direção): 1.402 pontos no total
 const DIVISOES = { fundo: [40, 13], teto: [40, 11], lateral: [11, 13] };
 const CONE = 0.9;          // inclinação da "bolsa" em volta da bola (mais = bolsa mais estreita e funda)
-const ESTUFA_MAXIMA = 0.85; // m: o fundo nunca estufa mais que isto
+const ESTUFA_MAXIMA = 0.9;  // m: o fundo nunca estufa mais que isto
+const PUXAO_BOLSA = 0.35;   // quanto a rede em volta é puxada para dentro da bolsa (parte do quanto o ponto afundou)
 const ANCORA = 20;         // puxão fraco de cada ponto de volta para o lugar (1/s²)
 const FREIO_FINO = 4;      // freio das ondinhas curtas (tira o tremido sem segurar o balanço grande)
 const PASSO_MAXIMO = 1 / 120; // s: passo da simulação (num quadro de 1/60 s são 2 passos)
@@ -1498,7 +1499,7 @@ export function criarMalhaRede(CONFIG) {
   const painel = (nome, [ns, nt], origem, eixoS, eixoT, normal, compS, compT, caimento, apoio) => {
     paineis.push({
       nome, ns, nt, W: ns + 1, base: total, origem, eixoS, eixoT, normal, compS, compT,
-      hs: compS / ns, ht: compT / nt, caimento, apoio, lado: 0, kS: 0, kT: 0,
+      hs: compS / ns, ht: compT / nt, caimento, apoio, lado: 0, kS: 0, kT: 0, bolsa: [0, 0], temBolsa: false, tocando: false,
     });
     total += (ns + 1) * (nt + 1);
   };
@@ -1543,14 +1544,17 @@ export function criarMalhaRede(CONFIG) {
 
   const estado = {
     acordada: true, quietos: 0, peso: -1, firmeza: -1,
-    bola: { x: 0, y: 0, z: 0, raio: CONFIG.raioBola || 0.11, nova: false, valida: false, x0: 0, y0: 0, z0: 0, anterior: false },
+    bola: { x: 0, y: 0, z: 0, raio: CONFIG.raioBola || 0.11, nova: false, valida: false, x0: 0, y0: 0, z0: 0, anterior: false, historico: [] },
+    relogio: 0,                                       // s de jogo desde que a rede foi criada
+    estufa: 1,                                        // redeEstufa deste quadro
+    // bolsa do fundo: o mais fundo que já foi, se já foi solta, e quanto dela já virou puxão no resto do gol
+    bolsaFundo: { maior: 0, solta: false, puxada: 0, forcaUsada: 0 },
     empurrao: null,                                   // estufar(): bola "de mentira" no fundo da rede
     tremor: { t: 10, forca: 0, xh: 0, trav: 0 },
     recuo: { x: 0, v: 0, alvo: 0 },
     ferro: { amp: 0, xh: 0, trav: 0, recuo: 0 },      // estado atual da estrutura (vai para os ferros)
     ferroMexido: false,
-    fundoAntes: 0,                                    // quanto o fundo estava estufado no quadro anterior
-    ultimoFundo: { x: 0, y: 0 },                      // onde a bola estufou o fundo pela última vez
+    ultimoFundo: { x: 0 },                            // onde a bola estufou o fundo pela última vez
   };
 
   // ----- Um passo da simulação (h segundos) -----
@@ -1606,7 +1610,7 @@ export function criarMalhaRede(CONFIG) {
     const tr = estado.tremor;
     tr.t += h;
     const f = estado.ferro;
-    f.amp = tr.t < 0.6 ? tr.forca * 0.028 * Math.exp(-tr.t / 0.11) * Math.sin(2 * Math.PI * 13 * tr.t) : 0;
+    f.amp = tr.t < 0.6 ? tr.forca * 0.035 * Math.exp(-tr.t / 0.11) * Math.sin(2 * Math.PI * 13 * tr.t) : 0;
     f.xh = tr.xh;
     f.trav = tr.trav;
     const r = estado.recuo;
@@ -1691,12 +1695,16 @@ export function criarMalhaRede(CONFIG) {
     const k1 = Math.min(p.ns - 1, Math.ceil((bs + alcance) / p.hs));
     const j0 = Math.max(1, Math.floor((bt - alcance) / p.ht));
     const j1 = Math.min(p.nt - 1, Math.ceil((bt + alcance) / p.ht));
-    const vbn = (wx * n0 + wy * n1 + wz * n2) * empurrao;
+    // No fundo, por dentro, quem estufa a rede é o estufarAlem: a bola só empurra (sem jogar a rede longe,
+    // senão o tamanho da bolsa dependeria de quantos quadros por segundo o celular faz)
+    const ganho = p === fundo && lado < 0 && !ladoForcado ? (estado.estufa > 0 ? 0 : 1) : empurrao;
+    const vbn = (wx * n0 + wy * n1 + wz * n2) * ganho;
     const peso = estado.peso;
     const xt = CONE * rEff;                            // onde a curva da ponta vira cone
     const ft = (xt * xt) / (2 * rEff);
     // No teto, por fora: a bola parada em cima puxa a rede até encostar nela (senão parece flutuar)
     const apoio = p.apoio && lado > 0 && bn - raio < 0.03 && wx * wx + wy * wy + wz * wz < 4;
+    let tocou = false;
     for (let j = j0; j <= j1; j++) {
       let i = p.base + j * p.W + k0;
       for (let k = k0; k <= k1; k++, i++) {
@@ -1715,6 +1723,7 @@ export function criarMalhaRede(CONFIG) {
           corrigir = (ponta + f - n) * 0.3;
         }
         if (corrigir === 0) continue;
+        tocou = true;
         u[a] += corrigir * n0;
         u[a + 1] += corrigir * n1;
         u[a + 2] += corrigir * n2;
@@ -1726,21 +1735,71 @@ export function criarMalhaRede(CONFIG) {
         v[a + 2] += dv * n2;
       }
     }
+    // A física segura a bola encostada no plano do teto e das laterais; a rede desenhada pode estar um
+    // pouco mais para dentro (caimento). Encostar no plano já conta como toque.
+    const encostou = p !== fundo && bs > 0 && bs < p.compS && bt > 0 && bt < p.compT && Math.abs(bn) < raio + 0.02;
+    if (tocou) {
+      // centro da última "bolsa" deste pano (a rede em volta é puxada para ela no desenho)
+      p.bolsa[0] = limitar(bs, 0, p.compS);
+      p.bolsa[1] = limitar(bt, 0, p.compT);
+      p.temBolsa = true;
+    }
+    // Primeiro toque com a bola vindo forte (teto, laterais ou rede por fora): a rede em volta
+    // também leva o tranco, não só os pontos embaixo da bola
+    if ((tocou || encostou) && !p.tocando && !ladoForcado && !(p === fundo && lado < 0)) {
+      p.bolsa[0] = limitar(bs, 0, p.compS);
+      p.bolsa[1] = limitar(bt, 0, p.compT);
+      p.temBolsa = true;
+      chutarEmVolta(p, bs, bt, vbn * 0.6, lado);
+    }
+    if (!ladoForcado) p.tocando = tocou || encostou;
     return lado < 0 ? Math.max(0, ponta) : 0;
+  }
+
+  // Tranco espalhado em volta do ponto (s, t) do pano: velocidade "dv" (para fora do gol = +) no centro,
+  // diminuindo até uns 70 cm. lado: de que lado a bola está (o tranco é para longe dela).
+  function chutarEmVolta(p, cs, ct, dv, lado) {
+    if (lado < 0 ? dv <= 0 : dv >= 0) return;
+    const [n0, n1, n2] = p.normal;
+    const R2 = 0.35 * 0.35;
+    const k0 = Math.max(1, Math.floor((cs - 0.8) / p.hs));
+    const k1 = Math.min(p.ns - 1, Math.ceil((cs + 0.8) / p.hs));
+    const j0 = Math.max(1, Math.floor((ct - 0.8) / p.ht));
+    const j1 = Math.min(p.nt - 1, Math.ceil((ct + 0.8) / p.ht));
+    for (let j = j0; j <= j1; j++) {
+      for (let k = k0; k <= k1; k++) {
+        const i = p.base + j * p.W + k;
+        const ds = coordS[i] - cs;
+        const dt = coordT[i] - ct;
+        const g = Math.exp(-(ds * ds + dt * dt) / R2);
+        const a = 3 * i;
+        const vn = v[a] * n0 + v[a + 1] * n1 + v[a + 2] * n2;
+        const alvo = dv * g;
+        const muda = lado < 0 ? Math.max(0, alvo - vn) : Math.min(0, alvo - vn);
+        v[a] += muda * n0;
+        v[a + 1] += muda * n1;
+        v[a + 2] += muda * n2;
+      }
+    }
   }
 
   // O fundo da rede estufa mais do que a bola afundou: a física para a bola em uns 20 cm, mas a rede de
   // verdade é leve e voa para trás, a bola fica dentro da bolsa e a rede volta balançando. Um empurrão
-  // "fantasma" no mesmo ponto vai mais fundo (com limite: chute fraco estufa pouco, chute forte uns 60 cm).
-  // profundidade: quanto a bola passou da linha do fundo; velocidade: com que rapidez ela afunda (m/s)
-  function estufarAlem(x, y, profundidade, velocidade, raio, estufa) {
+  // "fantasma" no mesmo ponto vai mais fundo (com limite: chute fraco estufa pouco, chute forte uns 70 cm).
+  // profundidade: quanto a bola passou da linha do fundo.
+  // Quando a bola começa a voltar, a rede é solta de uma vez (como a rede de verdade, que larga a bola e
+  // volta sozinha): assim ela balança bem, em vez de ser "abaixada" devagar junto com a bola.
+  function estufarAlem(x, y, profundidade, raio, estufa) {
     const p = Math.max(0, profundidade - 0.008);
     if (p <= 0) return 0;
-    const alem = Math.max(p, ESTUFA_MAXIMA * (1 - Math.exp(-6 * estufa * p / ESTUFA_MAXIMA)));
+    const alem = Math.max(p, ESTUFA_MAXIMA * (1 - Math.exp(-7 * estufa * p / ESTUFA_MAXIMA)));
+    const bolsa = estado.bolsaFundo;
+    if (alem > bolsa.maior) bolsa.maior = alem;
+    else if (alem < 0.9 * bolsa.maior) bolsa.solta = true;
+    if (bolsa.solta) return alem;
     const z = -P + raio - alem;
-    colidir(fundo, x, y, z, 0, 0, -Math.max(0, velocidade) * 0.45, raio, -1, 1);
+    colidir(fundo, x, y, z, 0, 0, 0, raio, -1, 1);
     estado.ultimoFundo.x = x;
-    estado.ultimoFundo.y = y;
     return alem;
   }
 
@@ -1774,6 +1833,35 @@ export function criarMalhaRede(CONFIG) {
     }
   }
 
+  // Os fios quase não esticam: quando o fundo vira bolsa, a rede em volta é puxada para dentro dela
+  // (os losangos "correm" para a bola). Sem isso, de frente (câmera atrás do cobrador) a bolsa quase não
+  // aparece, porque ela vai para longe do olho. Só muda o desenho, não a conta das molas.
+  // Cada ponto anda para o centro da bolsa uma parte do quanto saiu do lugar, nunca mais que 60% da
+  // distância até o centro: a malha não dobra sobre si mesma.
+  function puxarParaABolsa(p) {
+    const cs = p.bolsa[0];
+    const ct = p.bolsa[1];
+    const [n0, n1, n2] = p.normal;
+    const [s0, s1, s2] = p.eixoS;
+    const [t0, t1, t2] = p.eixoT;
+    for (let j = 1; j < p.nt; j++) {
+      let i = p.base + j * p.W + 1;
+      for (let k = 1; k < p.ns; k++, i++) {
+        const a = 3 * i;
+        const w = Math.abs(u[a] * n0 + u[a + 1] * n1 + u[a + 2] * n2);
+        if (w < 0.004) continue;
+        const ds = coordS[i] - cs;
+        const dt = coordT[i] - ct;
+        const r = Math.sqrt(ds * ds + dt * dt);
+        if (r < 1e-4) continue;
+        const anda = Math.min(PUXAO_BOLSA * w, 0.5 * r) / r;
+        posicoes[a] -= (ds * s0 + dt * t0) * anda;
+        posicoes[a + 1] -= (ds * s1 + dt * t1) * anda;
+        posicoes[a + 2] -= (ds * s2 + dt * t2) * anda;
+      }
+    }
+  }
+
   // Posições e normais para desenhar
   function escrever() {
     const peso = estado.peso;
@@ -1787,6 +1875,7 @@ export function criarMalhaRede(CONFIG) {
         posicoes[a + 1] = base[a + 1] + b * n1 + u[a + 1];
         posicoes[a + 2] = base[a + 2] + b * n2 + u[a + 2];
       }
+      if (p.temBolsa) puxarParaABolsa(p);
       const { ns, nt, W } = p;
       for (let j = 0; j <= nt; j++) {
         const jd = p.base + (j > 0 ? j - 1 : 0) * W;
@@ -1832,6 +1921,7 @@ export function criarMalhaRede(CONFIG) {
     b.nova = false;
     if (!(dt > 0)) return false;
     dt = Math.min(dt, 0.1);
+    estado.relogio += dt;
     const peso = limitar(ajuste(CONFIG, 'redePeso'), 0.2, 3);
     const firmeza = limitar(ajuste(CONFIG, 'redeFirmeza'), 1, 30);
     if (peso !== estado.peso || firmeza !== estado.firmeza) {
@@ -1866,12 +1956,31 @@ export function criarMalhaRede(CONFIG) {
     const gamma = limitar(ajuste(CONFIG, 'redeFreio'), 0, 30);
     const empurrao = limitar(ajuste(CONFIG, 'redeEmpurrao'), 0, 3);
     const estufa = limitar(ajuste(CONFIG, 'redeEstufa'), 0, 3);
+    estado.estufa = estufa;
 
     // A bola vai da posição do quadro anterior até a de agora, passo a passo (não atravessa a rede)
     const anda = b.valida && b.anterior && Math.hypot(b.x - b.x0, b.y - b.y0, b.z - b.z0) < Math.max(3, 45 * dt);
-    const wx = anda ? (b.x - b.x0) / dt : 0;
-    const wy = anda ? (b.y - b.y0) / dt : 0;
-    const wz = anda ? (b.z - b.z0) / dt : 0;
+    if (!anda) b.historico.length = 0;
+    // Velocidade da bola medida sempre num intervalo de ~1/60 s de jogo, para a rede reagir igual em
+    // 30 ou 60 quadros por segundo e na câmera lenta (quadros curtos pegariam a bola antes de frear)
+    let wx = 0;
+    let wy = 0;
+    let wz = 0;
+    if (anda && b.historico.length) {
+      let antiga = b.historico[0];
+      for (let n = b.historico.length - 1; n >= 0; n--) {
+        if (estado.relogio - b.historico[n].t >= 1 / 60 - 1e-6) {
+          antiga = b.historico[n];
+          break;
+        }
+      }
+      const intervalo = estado.relogio - antiga.t;
+      if (intervalo > 0) {
+        wx = (b.x - antiga.x) / intervalo;
+        wy = (b.y - antiga.y) / intervalo;
+        wz = (b.z - antiga.z) / intervalo;
+      }
+    }
     let mexendo = false;
     let fundura = 0;
     for (let n = 0; n < passos; n++) {
@@ -1886,20 +1995,31 @@ export function criarMalhaRede(CONFIG) {
           for (const p of paineis) colidir(p, bx, by, bz, wx, wy, wz, b.raio, 0, empurrao);
           // Bola afundando o fundo pelo lado de dentro: a rede estufa além dela (ver estufarAlem)
           if (fundo.lado < 0 && Math.abs(bx) < meia && by < A) {
-            fundura = Math.max(fundura, estufarAlem(bx, by, -P + b.raio - bz, -wz, b.raio, estufa));
+            fundura = Math.max(fundura, estufarAlem(bx, by, -P + b.raio - bz, b.raio, estufa));
           }
         }
       }
       const e = estado.empurrao;
-      if (e) fundura = Math.max(fundura, estufarAlem(e.x, e.y, e.profundidade, 0, b.raio, estufa));
+      if (e) fundura = Math.max(fundura, estufarAlem(e.x, e.y, e.profundidade, b.raio, estufa));
       // A bola afundando o fundo puxa a estrutura de trás (e o resto do gol balança junto)
       estado.recuo.alvo = 0.05 * Math.min(1, fundura / 0.6);
     }
     estado.empurrao = null;
-    // O fundo estufou de repente neste quadro: o resto do gol sente o puxão
-    const pulo = fundura - estado.fundoAntes;
-    if (pulo > 0.04) puxarVizinhos(estado.ultimoFundo.x, Math.min(3.5, pulo * 6));
-    estado.fundoAntes = fundura;
+    // O fundo estufou: o resto do gol sente o puxão (pelo quanto a bolsa cresceu, não pelo tamanho do
+    // quadro: igual em qualquer celular e na câmera lenta)
+    const bolsa = estado.bolsaFundo;
+    const cresceu = bolsa.maior - bolsa.puxada;
+    if (cresceu > 0.02) {
+      const forca = Math.min(cresceu * 6, 3.5 - bolsa.forcaUsada);
+      if (forca > 0) puxarVizinhos(estado.ultimoFundo.x, forca);
+      bolsa.forcaUsada += Math.max(0, forca);
+      bolsa.puxada = bolsa.maior;
+    }
+    // Bola fora da rede neste quadro: a próxima batida no fundo começa uma bolsa nova
+    if (fundura === 0) {
+      bolsa.maior = bolsa.puxada = bolsa.forcaUsada = 0;
+      bolsa.solta = false;
+    }
     guardarBola(b);
     escrever();
 
@@ -1922,6 +2042,17 @@ export function criarMalhaRede(CONFIG) {
     b.x0 = b.x;
     b.y0 = b.y;
     b.z0 = b.z;
+    if (!b.valida) {
+      b.historico.length = 0;
+      return;
+    }
+    // guarda as últimas posições (com a hora) para medir a velocidade
+    const h = b.historico.length >= 6 ? b.historico.shift() : {};
+    h.x = b.x;
+    h.y = b.y;
+    h.z = b.z;
+    h.t = estado.relogio;
+    b.historico.push(h);
   }
 
   estado.peso = limitar(ajuste(CONFIG, 'redePeso'), 0.2, 3);
@@ -1974,13 +2105,16 @@ export function criarMalhaRede(CONFIG) {
       tr.trav = (b.valida || b.anterior) && b.y > A - 0.15 && Math.abs(b.x) < meia - 0.1 ? 1 : 0.25;
       tr.forca = tr.t < 0.15 ? Math.max(i, tr.forca) : i;
       tr.t = 0;
-      // A rede leva um chacoalhão junto com os ferros
+      // A rede leva um chacoalhão junto com os ferros: várias ondas curtas misturadas (tremido, não balanço)
       for (const p of paineis) {
         const [n0, n1, n2] = p.normal;
+        const forca = i * (p.nome === 'teto' ? 0.8 : 0.5);
         for (let j = 1; j < p.nt; j++) {
           for (let k = 1; k < p.ns; k++) {
             const a = 3 * (p.base + j * p.W + k);
-            const onda = i * 0.35 * sen(k / p.ns) * sen(j / p.nt) * (p.nome === 'teto' ? 1.4 : 1);
+            const s = (k / p.ns) * p.compS;
+            const t = (j / p.nt) * p.compT;
+            const onda = forca * sen(k / p.ns) * sen(j / p.nt) * (0.35 + Math.sin(7.3 * s + 2.1) * Math.sin(6.1 * t + 0.7));
             v[a] += onda * n0;
             v[a + 1] += onda * n1;
             v[a + 2] += onda * n2;
@@ -1993,18 +2127,51 @@ export function criarMalhaRede(CONFIG) {
     reiniciar() {
       u.fill(0);
       v.fill(0);
-      for (const p of paineis) p.lado = 0;
+      for (const p of paineis) {
+        p.lado = 0;
+        p.temBolsa = false;
+        p.tocando = false;
+      }
       estado.empurrao = null;
-      estado.fundoAntes = 0;
+      Object.assign(estado.bolsaFundo, { maior: 0, solta: false, puxada: 0, forcaUsada: 0 });
       estado.tremor.t = 10;
       estado.recuo.x = estado.recuo.v = estado.recuo.alvo = 0;
       Object.assign(estado.ferro, { amp: 0, recuo: 0 });
       estado.ferroMexido = false;
       estado.bola.anterior = estado.bola.valida = estado.bola.nova = false;
+      estado.bola.historico.length = 0;
       escrever();
       estado.acordada = false;
     },
     atualizar,
+  };
+}
+
+// Ensaio da rede: uma rede invisível joga um gol "de mentira" (bola no fundo, bola no teto, trave), um
+// quadro por vez. Serve só para o navegador deixar a conta rápida antes do primeiro gol de verdade: sem
+// isso, o primeiro gol pode dar um engasgo bem na câmera lenta. passo() devolve false quando acabou.
+export function criarEnsaioRede(CONFIG) {
+  const malha = criarMalhaRede(CONFIG);
+  const P = CONFIG.golProfundidade;
+  const r = CONFIG.raioBola || 0.11;
+  let quadro = 0;
+  return {
+    passo() {
+      const t = quadro / 60;
+      if (quadro < 16) {
+        // chute no meio do gol: entra, afunda o fundo e volta um pouco
+        const z = Math.max(-P - 0.2, 1.5 - 25 * t);
+        malha.bola({ x: 0.3, y: 1.0, z }, r);
+        if (z < -P + r) malha.estufar(0.3, 1.0, -P + r - z);
+      } else if (quadro < 26) {
+        // bola caindo em cima do teto e bola raspando a lateral por fora
+        malha.bola({ x: 1.0, y: Math.max(CONFIG.golAltura + r, 3.2 - 4 * (t - 16 / 60) * 6), z: -1.0 }, r);
+      } else if (quadro === 26) {
+        malha.tremer(1);
+      }
+      malha.atualizar(1 / 60);
+      return ++quadro < 34;
+    },
   };
 }
 
@@ -2173,6 +2340,8 @@ function montarRede(scene, CONFIG, construtorRedeLa, anisotropia, uniformesFerro
   const redePerto = new THREE.Mesh(geometria, material);
   redePerto.renderOrder = 2;
   scene.add(redePerto);
+  // Nos primeiros quadros (o jogador ainda está mirando), o ensaio prepara a conta da rede
+  let ensaio = criarEnsaioRede(CONFIG);
 
   return {
     // Posição da bola neste quadro (chamar a cada quadro, antes de cenario.atualizar)
@@ -2197,6 +2366,8 @@ function montarRede(scene, CONFIG, construtorRedeLa, anisotropia, uniformesFerro
     },
     malha,
     atualizar(dt) {
+      // Ensaio: só enquanto a rede de verdade está parada (nunca no meio de um gol)
+      if (ensaio && !malha.acordada && !ensaio.passo()) ensaio = null;
       if (malha.atualizar(dt)) {
         posicao.needsUpdate = true;
         normal.needsUpdate = true;

@@ -597,9 +597,9 @@ function novaCobranca() {
   // Mira começa no lado do gol que a barreira não cobre
   mira.x = -barreira.lado * 1.9;
 
-  // Cobrador sugerido para esta falta (com a falta fixa, mantém a escolha)
+  // Cobrador sorteado a cada falta (com a falta fixa, mantém a escolha); a lista mostra o sugerido
   const lista = sugerirCobradores(ELENCO, falta);
-  if (!cobrador || !estado.fixa) cobrador = lista[0].jogador;
+  if (!cobrador || !estado.fixa) cobrador = ELENCO[Math.floor(aleatorio() * ELENCO.length)];
   const nota = lista.find((x) => x.jogador === cobrador).nota;
   ui.mostrarCobrador(cobrador, nota, lista);
   vestirCobrador(cobrador);
