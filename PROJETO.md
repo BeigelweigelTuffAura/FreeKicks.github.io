@@ -160,16 +160,15 @@ Várias ligas, duelo entre jogadores, multiplayer, moedas, loja, anúncios, comp
 
 1. ~~Cena, bola e chute reto com força, publicado no link.~~ Feito.
 2. ~~Ponto de contato, física de curva e elevação, e painel de ajuste.~~ Feito.
-3. Mira com imprecisão e controles de toque.
-4. Gol, trave, rede, detecção de gol, placar e recomeço rápido.
+3. ~~Gol, trave, rede que estufa, detecção de gol e placar; câmera aérea depois do chute; estádio com arquibancadas e torcida.~~ Feito.
+4. Mira com imprecisão e controles de toque.
 5. Barreira e goleiro.
-6. Câmeras novas: cobrador visível antes do chute e câmera aérea no chute.
+6. Cobrador visível antes do chute (câmera atrás do jogador, como no PS2).
 7. Elenco Lendário: atributos, pé bom e cobrador sugerido.
 8. Modo Temporada: camisa, escalação, liga, tabela e especialista do banco. Treino livre e recorde.
 9. Acabamento: som, replay do golaço e nome da jogada.
-10. Estádio.
-11. Rodada de ajuste fino jogando no celular.
-12. Depois: transformar em PWA para instalar na tela inicial do celular.
+10. Rodada de ajuste fino jogando no celular.
+11. Depois: transformar em PWA para instalar na tela inicial do celular.
 
 ## Critério de sucesso da v0.1
 

@@ -16,6 +16,19 @@ const CAMPOS = [
   { chave: 'perdaVelocidadeContato', rotulo: 'Velocidade perdida ao bater na borda', min: 0, max: 0.5, passo: 0.01 },
   { chave: 'semRotacaoAmplitude', rotulo: 'Bola sem rotação: quanto ela dança', min: 0, max: 15, passo: 0.5 },
 
+  { secao: 'Gol' },
+  { chave: 'quiqueTrave', rotulo: 'Quanto a bola volta ao bater na trave', min: 0, max: 1, passo: 0.05 },
+  { chave: 'redeRigidez', rotulo: 'Rigidez da rede (menor = estufa mais)', min: 500, max: 8000, passo: 100 },
+
+  { secao: 'Câmera' },
+  { chave: 'camera.aerea', rotulo: 'Câmera aérea depois do chute', tipo: 'liga' },
+  { chave: 'camera.aereaAltura', rotulo: 'Aérea: altura (m)', min: 4, max: 30, passo: 0.5 },
+  { chave: 'camera.aereaAtras', rotulo: 'Aérea: distância atrás da bola (m)', min: -5, max: 20, passo: 0.5 },
+  { chave: 'camera.aereaLado', rotulo: 'Aérea: deslocamento para o lado (m)', min: -15, max: 15, passo: 0.5 },
+  { chave: 'camera.aereaAlvo', rotulo: 'Aérea: para onde olha (0 = bola, 1 = gol)', min: 0, max: 1, passo: 0.05 },
+  { chave: 'camera.aereaAproxima', rotulo: 'Aérea: quanto anda junto com a bola', min: 0, max: 0.9, passo: 0.05 },
+  { chave: 'camera.aereaTransicao', rotulo: 'Aérea: tempo da troca de câmera (s, 0 = corte seco)', min: 0, max: 1.5, passo: 0.05 },
+
   { secao: 'Ar e gravidade' },
   { chave: 'gravidade', rotulo: 'Gravidade', min: 5, max: 15, passo: 0.1 },
   { chave: 'arrasto', rotulo: 'Resistência do ar', min: 0, max: 0.03, passo: 0.001 },
@@ -58,7 +71,8 @@ export function criarPainel({ config, versao, aoMudar }) {
   const salvo = lerSalvo(ARMAZENAMENTO);
   if (salvo && salvo.versao === versao) {
     for (const c of campos) {
-      if (typeof salvo.valores?.[c.chave] === 'number') gravar(config, c.chave, salvo.valores[c.chave]);
+      const v = salvo.valores?.[c.chave];
+      if (typeof v === typeof ler(config, c.chave)) gravar(config, c.chave, v);
     }
   }
 
@@ -68,7 +82,16 @@ export function criarPainel({ config, versao, aoMudar }) {
   const entradas = new Map();
 
   // Mostra tantas casas decimais quanto o passo do slider pede (0.5 -> 1 casa, 0.001 -> 3 casas)
-  const formatar = (c, v) => v.toFixed(Math.max(0, Math.ceil(-Math.log10(c.passo) - 1e-9)));
+  const formatar = (c, v) => {
+    if (c.tipo === 'liga') return v ? 'sim' : 'não';
+    return v.toFixed(Math.max(0, Math.ceil(-Math.log10(c.passo) - 1e-9)));
+  };
+  // Liga/desliga usa caixa de marcar; o resto, slider
+  const lerEntrada = (c, entrada) => (c.tipo === 'liga' ? entrada.checked : Number(entrada.value));
+  const mostrarNaEntrada = (c, entrada, v) => {
+    if (c.tipo === 'liga') entrada.checked = v;
+    else entrada.value = v;
+  };
 
   for (const c of CAMPOS) {
     if (c.secao) {
@@ -83,11 +106,16 @@ export function criarPainel({ config, versao, aoMudar }) {
     texto.textContent = c.rotulo;
     const valor = document.createElement('b');
     const entrada = document.createElement('input');
-    Object.assign(entrada, { type: 'range', min: c.min, max: c.max, step: c.passo });
-    entrada.value = ler(config, c.chave);
-    valor.textContent = formatar(c, Number(entrada.value));
+    if (c.tipo === 'liga') {
+      entrada.type = 'checkbox';
+      linha.classList.add('liga');
+    } else {
+      Object.assign(entrada, { type: 'range', min: c.min, max: c.max, step: c.passo });
+    }
+    mostrarNaEntrada(c, entrada, ler(config, c.chave));
+    valor.textContent = formatar(c, ler(config, c.chave));
     entrada.addEventListener('input', () => {
-      const v = Number(entrada.value);
+      const v = lerEntrada(c, entrada);
       gravar(config, c.chave, v);
       valor.textContent = formatar(c, v);
       salvarTudo();
@@ -134,7 +162,7 @@ export function criarPainel({ config, versao, aoMudar }) {
     for (const { entrada, valor, c } of entradas.values()) {
       const v = ler(padrao, c.chave);
       gravar(config, c.chave, v);
-      entrada.value = v;
+      mostrarNaEntrada(c, entrada, v);
       valor.textContent = formatar(c, v);
       aoMudar(c.chave);
     }

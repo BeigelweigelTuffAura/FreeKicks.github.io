@@ -11,6 +11,10 @@ export function criarBola(posicao) {
     vel: { x: 0, y: 0, z: 0 },
     giro: { x: 0, y: 0, z: 0 }, // rotação em rad/s; o eixo diz para onde a bola gira
     danca: null,                // oscilação da bola sem rotação (quando existe)
+    cruzamento: null,           // onde o centro da bola passou pela linha do gol {x, y}
+    entrouNoGol: false,         // passou a linha por dentro das traves e abaixo do travessão
+    gol: false,                 // a bola inteira passou a linha
+    eventos: [],                // batidas na trave e na rede, para a tela reagir (som, rede estufando)
   };
 }
 
@@ -72,9 +76,115 @@ export function noChao(bola, cfg) {
   return bola.pos.y <= cfg.raioBola + 1e-4 && Math.abs(bola.vel.y) < 1e-3;
 }
 
+// Quebra a velocidade em parte "contra a superfície" (normal n) e parte "ao longo dela".
+// A parte normal volta multiplicada por restituicao; a outra é multiplicada por atrito.
+// Devolve a velocidade da batida (0 se a bola já estava se afastando).
+function rebater(vel, n, restituicao, atrito) {
+  const vn = vel.x * n.x + vel.y * n.y + vel.z * n.z;
+  if (vn >= 0) return 0;
+  const tx = vel.x - vn * n.x;
+  const ty = vel.y - vn * n.y;
+  const tz = vel.z - vn * n.z;
+  vel.x = tx * atrito - vn * restituicao * n.x;
+  vel.y = ty * atrito - vn * restituicao * n.y;
+  vel.z = tz * atrito - vn * restituicao * n.z;
+  return -vn;
+}
+
+// Traves e travessão: cilindros brancos na linha do gol (z = 0)
+function colidirComTraves(bola, cfg) {
+  const { pos, vel, giro } = bola;
+  const meia = cfg.golLargura / 2;
+  const A = cfg.golAltura;
+  const R = cfg.raioTrave;
+  const minimo = R + cfg.raioBola;
+  const bater = (tipo, n) => {
+    const impacto = rebater(vel, n, cfg.quiqueTrave, 0.85);
+    if (impacto > 0.5) {
+      bola.eventos.push({ tipo, impacto });
+      giro.x *= 0.4;
+      giro.y *= 0.4;
+      giro.z *= 0.4;
+      bola.danca = null;
+    }
+  };
+
+  for (const lado of [-1, 1]) {
+    const cx = lado * (meia + R);
+    const dx = pos.x - cx;
+    const d = Math.hypot(dx, pos.z);
+    if (pos.y <= A + R && d < minimo && d > 1e-6) {
+      const n = { x: dx / d, y: 0, z: pos.z / d };
+      pos.x = cx + n.x * minimo;
+      pos.z = n.z * minimo;
+      bater('trave', n);
+    }
+  }
+
+  if (Math.abs(pos.x) <= meia + 2 * R) {
+    const dy = pos.y - (A + R);
+    const d = Math.hypot(dy, pos.z);
+    if (d < minimo && d > 1e-6) {
+      const n = { x: 0, y: dy / d, z: pos.z / d };
+      pos.y = A + R + n.y * minimo;
+      pos.z = n.z * minimo;
+      bater('travessao', n);
+    }
+  }
+}
+
+// Rede: o fundo é macio e estufa; as laterais e o teto seguram a bola por dentro e por fora
+function colidirComRede(bola, cfg, anterior, dt) {
+  const { pos, vel } = bola;
+  const meia = cfg.golLargura / 2;
+  const A = cfg.golAltura;
+  const P = cfg.golProfundidade;
+  const r = cfg.raioBola;
+
+  if (!bola.cruzamento && anterior.z >= 0 && pos.z < 0) {
+    bola.cruzamento = { x: pos.x, y: pos.y };
+    if (Math.abs(pos.x) < meia && pos.y < A) bola.entrouNoGol = true;
+  }
+  if (bola.entrouNoGol && pos.z < -r) bola.gol = true;
+  if (pos.z >= 0 || pos.z < -P - 1) return;
+
+  const segurar = (eixo, valor, sentido) => {
+    pos[eixo] = valor;
+    if (vel[eixo] * sentido > 0) {
+      vel[eixo] *= -0.1;
+      for (const outro of ['x', 'y', 'z']) if (outro !== eixo) vel[outro] *= 0.6;
+      bola.eventos.push({ tipo: 'rede' });
+    }
+  };
+
+  if (bola.entrouNoGol) {
+    // Fundo da rede: funciona como uma mola amortecida, então a bola afunda e a rede estufa
+    const afundou = -P + r - pos.z;
+    if (afundou > 0) {
+      vel.z += (cfg.redeRigidez * afundou - 2 * Math.sqrt(cfg.redeRigidez) * vel.z) * dt;
+      const atrito = Math.exp(-6 * dt);
+      vel.x *= atrito;
+      vel.y *= atrito;
+      bola.eventos.push({ tipo: 'fundo', x: pos.x, y: pos.y, afundou });
+    }
+    for (const lado of [-1, 1]) {
+      if (lado * pos.x > meia - r) segurar('x', lado * (meia - r), lado);
+    }
+    if (pos.y > A - r) segurar('y', A - r, 1);
+  } else if (pos.z > -P - r) {
+    // Por fora: a bola que vem de lado bate na rede lateral; a que cai por cima para no teto
+    for (const lado of [-1, 1]) {
+      const x = lado * pos.x;
+      if (x > meia && x < meia + r && pos.y < A + r) segurar('x', lado * (meia + r), -lado);
+    }
+    if (Math.abs(pos.x) < meia && pos.y > A && pos.y < A + r) segurar('y', A + r, -1);
+  }
+}
+
 // Avança a simulação em dt segundos.
 export function passo(bola, dt, cfg) {
   const { pos, vel, giro } = bola;
+  const anterior = { ...pos };
   const rolando = noChao(bola, cfg);
   const rapidez = Math.hypot(vel.x, vel.y, vel.z);
 
@@ -109,6 +219,9 @@ export function passo(bola, dt, cfg) {
   pos.x += vel.x * dt;
   pos.y += vel.y * dt;
   pos.z += vel.z * dt;
+
+  colidirComTraves(bola, cfg);
+  colidirComRede(bola, cfg, anterior, dt);
 
   const perda = Math.max(0, 1 - cfg.decaimentoGiro * dt);
   giro.x *= perda;

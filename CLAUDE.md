@@ -22,3 +22,4 @@ A especificação completa (escopo, mecânica, ordem de construção) está em `
 - **Cache:** a hospedagem guarda arquivos em cache por alguns minutos. A cada etapa publicada, aumente o número `?v=N` em todos os imports e links (`index.html` e `js/*.js`) e atualize `VERSAO`:
   `sed -i 's/?v=[0-9]*/?v=NOVO/g' index.html js/*.js`
 - Testar no celular real é obrigatório; o rótulo de versão no canto da tela confirma qual versão está carregada.
+- **Modo teste:** abrir com `?teste` no endereço faz cada quadro valer exatamente 1/60 s e expõe `window.tempoDeJogo`. Serve para capturas automáticas previsíveis (Playwright), mesmo com o navegador lento.

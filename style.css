@@ -82,6 +82,14 @@ body {
   font-size: 15px;
 }
 
+#placar {
+  margin-top: 2px;
+  min-height: 18px;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
 #mensagem {
   margin-top: 4px;
   min-height: 22px;
@@ -90,6 +98,7 @@ body {
 }
 
 #controles {
+  transition: opacity 0.25s;
   margin-top: auto;
   width: 100%;
   max-width: 420px;
@@ -261,6 +270,17 @@ body {
   accent-color: #f7d84a;
 }
 
+#painel .campo.liga {
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+}
+
+#painel .campo.liga input {
+  grid-column: auto;
+  width: 22px;
+  height: 22px;
+}
+
 #painel button {
   border: none;
   border-radius: 8px;
@@ -292,4 +312,67 @@ body {
   font-size: 11px;
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* Durante o voo da bola, os controles ficam apagados para não tapar a jogada */
+#hud.em-jogo #controles {
+  opacity: 0.2;
+}
+
+/* Resultado da cobrança: GOL!, NA TRAVE!, POR CIMA... */
+#resultado {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 58%;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+}
+
+#resultado.mostrar {
+  animation: aparecer 0.35s ease-out forwards;
+}
+
+#resultado-titulo {
+  font-size: 46px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35), 0 0 18px rgba(0, 0, 0, 0.45);
+}
+
+#resultado.gol #resultado-titulo {
+  font-size: 76px;
+  color: #f7d84a;
+}
+
+#resultado-sub {
+  margin-top: 2px;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+@keyframes aparecer {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Tela deitada (computador): controles no canto, para não tapar a bola */
+@media (min-aspect-ratio: 1/1) {
+  #controles {
+    position: fixed;
+    right: 16px;
+    bottom: calc(env(safe-area-inset-bottom) + 16px);
+    width: 380px;
+  }
 }

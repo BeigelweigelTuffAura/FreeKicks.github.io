@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { CONFIG, VERSAO } from './config.js?v=2';
-import { criarBola, chutar, passo, noChao } from './physics.js?v=2';
-import { criarPainel } from './painel.js?v=2';
+import { CONFIG, VERSAO } from './config.js?v=3';
+import { criarBola, chutar, passo, noChao } from './physics.js?v=3';
+import { criarPainel } from './painel.js?v=3';
 
 const GRAUS = Math.PI / 180;
 const PASSO_FISICA = 1 / 240; // a física roda em passos pequenos e fixos, independente do celular
@@ -66,6 +66,9 @@ function criarGramado() {
     ctx.stroke();
   };
   linha([[-34, 0], [34, 0]]);                                     // linha de fundo
+  linha([[-34, 0], [-34, 65]]);                                   // laterais
+  linha([[34, 0], [34, 65]]);
+  linha([[-34, 52.5], [34, 52.5]]);                               // meio de campo
   linha([[-20.16, 0], [-20.16, 16.5], [20.16, 16.5], [20.16, 0]]); // grande área
   linha([[-9.16, 0], [-9.16, 5.5], [9.16, 5.5], [9.16, 0]]);       // pequena área
 
@@ -87,22 +90,148 @@ function criarGramado() {
   gramado.rotation.x = -Math.PI / 2;
   gramado.position.set(0, 0, INICIO_Z + COMPRIMENTO / 2);
   scene.add(gramado);
+}
 
-  // Placas de publicidade atrás do gol, só para dar fundo e noção de profundidade
-  const placas = new THREE.Group();
-  const cores = [0x1d3557, 0xe63946, 0x1d3557, 0xf1c40f];
-  for (let i = 0; i < 16; i++) {
-    const placa = new THREE.Mesh(
-      new THREE.BoxGeometry(5.8, 0.9, 0.1),
-      new THREE.MeshLambertMaterial({ color: cores[i % cores.length] })
-    );
-    placa.position.set(-46.5 + i * 6.2, 0.45, -7);
-    placas.add(placa);
+// ---------- Estádio: placas, arquibancadas com torcida e refletores ----------
+
+// Torcida desenhada num canvas: degraus de concreto com torcedores coloridos
+function texturaTorcida() {
+  const W = 512;
+  const H = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#23262d';
+  ctx.fillRect(0, 0, W, H);
+  const camisas = ['#a83232', '#a83232', '#1a1a1a', '#c9c9c9', '#c9ad45', '#3b5aa8', '#b8664f', '#3f8a80', '#dedede', '#262626'];
+  const peles = ['#c9a27a', '#b8895c', '#9a6a40', '#6e4628', '#d9b896'];
+  const degraus = 16;
+  const altura = H / degraus;
+  for (let d = 0; d < degraus; d++) {
+    const chao = (d + 1) * altura - 3;
+    ctx.fillStyle = '#353a42';
+    ctx.fillRect(0, chao, W, 3);
+    for (let x = 0; x < W; x += 6) {
+      if (Math.random() < 0.1) continue; // cadeira vazia
+      const h = altura - 6 - Math.random() * 3;
+      ctx.fillStyle = camisas[(Math.random() * camisas.length) | 0];
+      ctx.fillRect(x + 1, chao - h * 0.7, 4, h * 0.7);
+      ctx.fillStyle = peles[(Math.random() * peles.length) | 0];
+      ctx.fillRect(x + 1.5, chao - h, 3, h * 0.32);
+    }
   }
-  scene.add(placas);
+  const textura = texturaDeCanvas(canvas);
+  textura.wrapS = textura.wrapT = THREE.RepeatWrapping;
+  return textura;
+}
+
+// Placa de publicidade com um texto fictício
+function texturaPlaca(texto, fundo, cor) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = fundo;
+  ctx.fillRect(0, 0, 512, 64);
+  ctx.fillStyle = cor;
+  ctx.font = 'bold 40px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(texto, 256, 34);
+  return texturaDeCanvas(canvas);
+}
+
+function criarEstadio() {
+  const torcida = texturaTorcida();
+  const muro = new THREE.MeshLambertMaterial({ color: 0x46524a });
+  const concreto = new THREE.MeshLambertMaterial({ color: 0x8b929b });
+  const telhado = new THREE.MeshLambertMaterial({ color: 0x2a2e35 });
+
+  // Uma arquibancada reta: começa num muro na frente e sobe inclinada para trás.
+  // Montada "de frente para +z" e depois girada para o lugar certo.
+  const arquibancada = ({ largura, recuo, profundidade, alturaFrente, alturaFundo, giro, x = 0, z = 0, cobertura = 0 }) => {
+    const grupo = new THREE.Group();
+    const subida = alturaFundo - alturaFrente;
+    const comprimento = Math.hypot(profundidade, subida);
+    const textura = torcida.clone();
+    textura.repeat.set(largura / 40, comprimento / 11); // um torcedor a cada ~0,5 m
+    textura.needsUpdate = true;
+    const degraus = new THREE.Mesh(
+      new THREE.PlaneGeometry(largura, comprimento),
+      new THREE.MeshLambertMaterial({ map: textura, color: 0xd8d8d8 })
+    );
+    degraus.rotation.x = -Math.atan2(profundidade, subida);
+    degraus.position.set(0, alturaFrente + subida / 2, -(recuo + profundidade / 2));
+    grupo.add(degraus);
+
+    const frente = new THREE.Mesh(new THREE.BoxGeometry(largura, alturaFrente, 0.5), muro);
+    frente.position.set(0, alturaFrente / 2, -recuo);
+    grupo.add(frente);
+
+    // Faixa de concreto no alto, para a arquibancada não terminar "no ar"
+    const topo = new THREE.Mesh(new THREE.BoxGeometry(largura, 3, 1), concreto);
+    topo.position.set(0, alturaFundo + 1.5, -(recuo + profundidade));
+    grupo.add(topo);
+
+    // Cobertura: uma laje escura saindo do alto em direção ao campo
+    if (cobertura > 0) {
+      const laje = new THREE.Mesh(new THREE.BoxGeometry(largura, 0.8, cobertura), telhado);
+      laje.position.set(0, alturaFundo + 3.4, -(recuo + profundidade - cobertura / 2));
+      laje.rotation.x = -0.08;
+      grupo.add(laje);
+    }
+
+    grupo.rotation.y = giro;
+    grupo.position.set(x, 0, z);
+    scene.add(grupo);
+  };
+
+  // Atrás do gol e nas duas laterais do campo
+  arquibancada({ largura: 150, recuo: 13, profundidade: 22, alturaFrente: 1.6, alturaFundo: 14, giro: 0, cobertura: 16 });
+  arquibancada({ largura: 90, recuo: 41, profundidade: 24, alturaFrente: 1.6, alturaFundo: 16, giro: Math.PI / 2, z: 30, cobertura: 14 });
+  arquibancada({ largura: 90, recuo: 41, profundidade: 24, alturaFrente: 1.6, alturaFundo: 16, giro: -Math.PI / 2, z: 30, cobertura: 14 });
+
+  // Placas de publicidade (nomes fictícios) em volta do campo
+  const anuncios = [
+    texturaPlaca('FOLHA SECA', '#1d3557', '#f7d84a'),
+    texturaPlaca('GOLAÇO TV', '#e63946', '#ffffff'),
+    texturaPlaca('TRIVELA', '#f7d84a', '#1b2a12'),
+    texturaPlaca('NO ÂNGULO', '#111111', '#ffffff'),
+  ];
+  const placa = (i, x, z, giro) => {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(6, 0.9, 0.12),
+      new THREE.MeshLambertMaterial({ map: anuncios[i % anuncios.length] })
+    );
+    mesh.position.set(x, 0.45, z);
+    mesh.rotation.y = giro;
+    scene.add(mesh);
+  };
+  for (let i = 0; i < 14; i++) placa(i, -39 + i * 6, -7, 0);
+  for (let i = 0; i < 11; i++) {
+    placa(i + 1, -37.5, -4 + i * 6, Math.PI / 2);
+    placa(i + 2, 37.5, -4 + i * 6, -Math.PI / 2);
+  }
+
+  // Refletores nos cantos
+  const poste = new THREE.MeshLambertMaterial({ color: 0x5b616b });
+  const lampada = new THREE.MeshLambertMaterial({ color: 0xfff6d0, emissive: 0xfff2b0, emissiveIntensity: 0.9 });
+  for (const [x, z] of [[-52, -30], [52, -30], [-58, 75], [58, 75]]) {
+    const torre = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, 40, 8), poste);
+    torre.position.set(x, 20, z);
+    scene.add(torre);
+    const painel = new THREE.Mesh(new THREE.BoxGeometry(9, 4, 1), lampada);
+    painel.position.set(x, 41, z);
+    painel.lookAt(0, 0, 25);
+    scene.add(painel);
+  }
 }
 
 // ---------- Gol com rede ----------
+
+// Rede do fundo: a malha é deformada quando a bola bate, para ela "estufar"
+const rede = { malha: null, base: null, amp: 0, alvo: 0, x: 0, y: 0 };
 
 function texturaRede() {
   const canvas = document.createElement('canvas');
@@ -135,19 +264,21 @@ function criarGol() {
 
   // Rede: planos transparentes com uma grade desenhada
   const malha = 0.15; // m entre os fios
-  const planoRede = (largura, altura) => {
+  const planoRede = (largura, altura, divisoesX = 1, divisoesY = 1) => {
     const textura = texturaRede();
     textura.repeat.set(largura / malha, altura / malha);
     return new THREE.Mesh(
-      new THREE.PlaneGeometry(largura, altura),
+      new THREE.PlaneGeometry(largura, altura, divisoesX, divisoesY),
       new THREE.MeshBasicMaterial({
         map: textura, transparent: true, side: THREE.DoubleSide, depthWrite: false, fog: true,
       })
     );
   };
-  const fundo = planoRede(L, A);
+  const fundo = planoRede(L, A, 36, 12);
   fundo.position.set(0, A / 2, -P);
   gol.add(fundo);
+  rede.malha = fundo;
+  rede.base = fundo.geometry.attributes.position.array.slice();
   const teto = planoRede(L, P);
   teto.rotation.x = Math.PI / 2;
   teto.position.set(0, A, -P / 2);
@@ -221,12 +352,37 @@ sombra.rotation.x = -Math.PI / 2;
 scene.add(sombra);
 
 criarGramado();
+criarEstadio();
 criarGol();
+
+function atualizarRede(dt) {
+  // Enquanto a bola empurra, a rede acompanha; depois, volta ao lugar
+  if (rede.alvo > rede.amp) rede.amp += (rede.alvo - rede.amp) * Math.min(1, dt * 40);
+  else rede.amp *= Math.exp(-dt * 4);
+  rede.alvo = 0;
+  if (rede.amp < 0.001 && !rede.deformada) return;
+  rede.deformada = rede.amp >= 0.001;
+
+  const meiaL = CONFIG.golLargura / 2;
+  const meiaA = CONFIG.golAltura / 2;
+  const pos = rede.malha.geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = rede.base[i * 3];
+    const y = rede.base[i * 3 + 1];
+    const distancia2 = (x - rede.x) ** 2 + (y + meiaA - rede.y) ** 2;
+    // Presa nas bordas (traves, travessão e chão), solta no meio
+    const borda = Math.min(1, (meiaL - Math.abs(x)) / 0.6) * Math.min(1, (meiaA - Math.abs(y)) / 0.5);
+    pos.setZ(i, -rede.amp * Math.exp(-distancia2 / 0.7) * Math.max(0, borda));
+  }
+  pos.needsUpdate = true;
+}
 
 // ---------- Câmera ----------
 
 let cameraBase = new THREE.Vector3();
 let olharBase = new THREE.Vector3();
+const olharAtual = new THREE.Vector3(); // para onde a câmera está olhando agora
+let misturaAerea = 0;                   // 0 = câmera atrás da bola, 1 = câmera aérea
 
 function posicionarCamera(posBola) {
   const c = CONFIG.camera;
@@ -240,7 +396,9 @@ function posicionarCamera(posBola) {
   const distancia = Math.hypot(cameraBase.x, cameraBase.z);
   olharBase = new THREE.Vector3(0, c.altura - distancia * Math.tan(c.inclinacao * GRAUS), 0);
   camera.position.copy(cameraBase);
-  camera.lookAt(olharBase);
+  olharAtual.copy(olharBase);
+  camera.lookAt(olharAtual);
+  misturaAerea = 0;
 }
 
 function ajustarTela() {
@@ -267,12 +425,19 @@ const elementos = {
   contatoBola: document.getElementById('contato-bola'),
   contatoPonto: document.getElementById('contato-ponto'),
   contatoRotulo: document.getElementById('contato-rotulo'),
+  hud: document.getElementById('hud'),
+  placar: document.getElementById('placar'),
+  resultado: document.getElementById('resultado'),
+  resultadoTitulo: document.getElementById('resultado-titulo'),
+  resultadoSub: document.getElementById('resultado-sub'),
 };
 document.getElementById('versao').textContent = VERSAO;
 
 // fase: 'pronto' -> 'carregando' -> 'voo' -> 'fim' -> 'pronto'
-const estado = { fase: 'pronto', carga: 0, tempo: 0, espera: 0 };
+const estado = { fase: 'pronto', carga: 0, tempo: 0, espera: 0, gols: 0, cobrancas: 0, sequencia: 0 };
 let bola;
+// O que aconteceu na cobrança atual
+const jogada = { batida: null, redeFora: false };
 
 // ---------- Ponto de contato (onde o pé pega na bola) ----------
 
@@ -351,6 +516,11 @@ function novaCobranca() {
   estado.fase = 'pronto';
   estado.carga = 0;
   mostrarCarga(0);
+  jogada.batida = null;
+  jogada.redeFora = false;
+  rede.amp = 0;
+  elementos.resultado.className = '';
+  elementos.hud.classList.remove('em-jogo');
   const { distancia, angulo } = CONFIG.falta;
   const lado = angulo > 3 ? ' pela direita' : angulo < -3 ? ' pela esquerda' : '';
   elementos.info.innerHTML = `Falta a <b>${distancia} m</b>${lado}`;
@@ -375,12 +545,70 @@ function soltarChute() {
   const { velocidade } = chutar(bola, { alvo: { x: 0, z: 0 }, forca, contato }, CONFIG);
   estado.fase = 'voo';
   estado.tempo = 0;
+  elementos.hud.classList.add('em-jogo');
   elementos.mensagem.textContent = `Força ${Math.round(forca * 100)}% · ${Math.round(velocidade * 3.6)} km/h`;
 }
 
-function encerrarJogada() {
+function encerrarJogada(espera) {
   estado.fase = 'fim';
-  estado.espera = CONFIG.esperaRecomeco;
+  estado.espera = espera;
+}
+
+// Lê o que a física registrou: rede estufando e batidas na trave
+function processarEventos() {
+  for (const ev of bola.eventos) {
+    if (ev.tipo === 'fundo') {
+      rede.x = ev.x;
+      rede.y = ev.y;
+      rede.alvo = Math.max(rede.alvo, ev.afundou + 0.03);
+    } else if (ev.tipo === 'trave' || ev.tipo === 'travessao') {
+      jogada.batida = ev.tipo;
+    } else if (ev.tipo === 'rede' && !bola.entrouNoGol) {
+      jogada.redeFora = true;
+    }
+  }
+  bola.eventos.length = 0;
+}
+
+// Devolve o resultado assim que dá para saber; null enquanto a jogada está em aberto
+function decidirResultado(acabou) {
+  if (bola.gol) return 'gol';
+  if (bola.cruzamento && !bola.entrouNoGol) {
+    if (jogada.batida) return 'trave';
+    return bola.cruzamento.y >= CONFIG.golAltura ? 'cima' : 'fora';
+  }
+  if (jogada.batida && bola.vel.z > 0.5) return 'trave'; // voltou da trave para o campo
+  if (acabou) return jogada.batida ? 'trave' : 'curta';
+  return null;
+}
+
+function mostrarResultado(resultado) {
+  estado.cobrancas++;
+  let titulo;
+  const sub = [];
+  if (resultado === 'gol') {
+    estado.gols++;
+    estado.sequencia++;
+    titulo = 'GOL!';
+    const { x, y } = bola.cruzamento;
+    if (Math.abs(x) > CONFIG.golLargura / 2 - 0.9 && y > CONFIG.golAltura - 0.8) sub.push('No ângulo!');
+    else if (jogada.batida) sub.push('Bateu na trave e entrou!');
+    if (estado.sequencia >= 2) sub.push(`${estado.sequencia} seguidos`);
+  } else {
+    estado.sequencia = 0;
+    if (resultado === 'trave') titulo = jogada.batida === 'travessao' ? 'NO TRAVESSÃO!' : 'NA TRAVE!';
+    else if (resultado === 'cima') titulo = 'POR CIMA';
+    else if (resultado === 'fora') titulo = 'PRA FORA';
+    else titulo = 'NÃO CHEGOU';
+    if (resultado === 'fora' && jogada.redeFora) sub.push('Na rede, pelo lado de fora');
+  }
+  elementos.resultadoTitulo.textContent = titulo;
+  elementos.resultadoSub.textContent = sub.join(' · ');
+  elementos.resultado.className = resultado === 'gol' ? 'gol' : 'erro';
+  void elementos.resultado.offsetWidth; // reinicia a animação
+  elementos.resultado.classList.add('mostrar');
+  const seq = estado.sequencia >= 2 ? ` · sequência ${estado.sequencia}` : '';
+  elementos.placar.textContent = `Gols: ${estado.gols} de ${estado.cobrancas}${seq}`;
 }
 
 // ---------- Controles ----------
@@ -446,25 +674,66 @@ function atualizarBolaNaTela(dt) {
   sombra.material.opacity = Math.max(0.15, 1 - altura * 0.12);
 }
 
-function atualizarCamera() {
-  const seguir = CONFIG.camera.seguir;
+// Câmera aérea: alta e atrás da bola. Olha para um ponto entre a bola e o gol:
+// no começo mostra a bola saindo, no fim mostra o gol inteiro.
+function poseAerea(inicio) {
+  const c = CONFIG.camera;
+  const distancia = Math.hypot(inicio.x, inicio.z);
+  const fx = -inicio.x / distancia; // direção da bola para o gol
+  const fz = -inicio.z / distancia;
+  const dx = -fz;                   // direita de quem cobra
+  const dz = fx;
+  const pos = new THREE.Vector3(
+    inicio.x - fx * c.aereaAtras + dx * c.aereaLado + (bola.pos.x - inicio.x) * c.aereaAproxima,
+    c.aereaAltura,
+    inicio.z - fz * c.aereaAtras + dz * c.aereaLado + (bola.pos.z - inicio.z) * c.aereaAproxima
+  );
+  const centroGol = new THREE.Vector3(0, 1, 0);
+  const olhar = new THREE.Vector3(bola.pos.x, bola.pos.y, bola.pos.z).lerp(centroGol, c.aereaAlvo);
+  return { pos, olhar };
+}
+
+function atualizarCamera(dt) {
+  const c = CONFIG.camera;
   const inicio = posicaoDaFalta();
-  const alvoCamera = cameraBase.clone();
-  const alvoOlhar = olharBase.clone();
-  if (estado.fase === 'voo' || estado.fase === 'fim') {
-    alvoCamera.x += (bola.pos.x - inicio.x) * seguir;
-    alvoCamera.y += (bola.pos.y - inicio.y) * seguir * 0.5;
-    alvoCamera.z += Math.max(-8, (bola.pos.z - inicio.z) * seguir);
-    alvoOlhar.x += (bola.pos.x - inicio.x) * seguir;
+  const emJogo = estado.fase === 'voo' || estado.fase === 'fim';
+
+  // Câmera atrás da bola, acompanhando de leve depois do chute
+  const posAlvo = cameraBase.clone();
+  const olharAlvo = olharBase.clone();
+  if (emJogo) {
+    posAlvo.x += (bola.pos.x - inicio.x) * c.seguir;
+    posAlvo.y += (bola.pos.y - inicio.y) * c.seguir * 0.5;
+    posAlvo.z += Math.max(-8, (bola.pos.z - inicio.z) * c.seguir);
+    olharAlvo.x += (bola.pos.x - inicio.x) * c.seguir;
   }
-  camera.position.lerp(alvoCamera, 0.08);
-  camera.lookAt(alvoOlhar);
+
+  // Troca para a aérea com uma transição suave (ou corte seco, se o tempo for 0)
+  const querAerea = emJogo && c.aerea ? 1 : 0;
+  if (c.aereaTransicao <= 0) misturaAerea = querAerea;
+  else if (misturaAerea < querAerea) misturaAerea = Math.min(querAerea, misturaAerea + dt / c.aereaTransicao);
+  else misturaAerea = Math.max(querAerea, misturaAerea - dt / c.aereaTransicao);
+  const t = misturaAerea * misturaAerea * (3 - 2 * misturaAerea);
+  if (t > 0) {
+    const aerea = poseAerea(inicio);
+    posAlvo.lerp(aerea.pos, t);
+    olharAlvo.lerp(aerea.olhar, t);
+  }
+
+  const suavidade = t > 0 ? 1 : 1 - Math.exp(-dt * 5);
+  camera.position.lerp(posAlvo, suavidade);
+  olharAtual.lerp(olharAlvo, suavidade);
+  camera.lookAt(olharAtual);
 }
 
 const relogio = new THREE.Clock();
+// Com ?teste no endereço, cada quadro vale exatamente 1/60 s: os testes automáticos ficam previsíveis
+const MODO_TESTE = new URLSearchParams(location.search).has('teste');
+window.tempoDeJogo = 0;
 
 function quadro() {
-  const dt = Math.min(relogio.getDelta(), 0.05);
+  const dt = MODO_TESTE ? 1 / 60 : Math.min(relogio.getDelta(), 0.05);
+  window.tempoDeJogo += dt;
 
   if (estado.fase === 'carregando') {
     estado.carga = Math.min(1, estado.carga + dt / CONFIG.tempoCarga);
@@ -474,20 +743,25 @@ function quadro() {
   if (estado.fase === 'voo' || estado.fase === 'fim') {
     const passos = Math.ceil(dt / PASSO_FISICA);
     for (let i = 0; i < passos; i++) passo(bola, dt / passos, CONFIG);
+    processarEventos();
   }
+  atualizarRede(dt);
 
   if (estado.fase === 'voo') {
     estado.tempo += dt;
     const parada = noChao(bola, CONFIG) && Math.hypot(bola.vel.x, bola.vel.z) < 0.3;
-    const passouDoGol = bola.pos.z < -CONFIG.golProfundidade - 1;
-    if (parada || passouDoGol || estado.tempo > CONFIG.tempoMaxVoo) encerrarJogada();
+    const resultado = decidirResultado(parada || estado.tempo > CONFIG.tempoMaxVoo);
+    if (resultado) {
+      mostrarResultado(resultado);
+      encerrarJogada(resultado === 'gol' ? CONFIG.esperaGol : CONFIG.esperaRecomeco);
+    }
   } else if (estado.fase === 'fim') {
     estado.espera -= dt;
     if (estado.espera <= 0) novaCobranca();
   }
 
   atualizarBolaNaTela(dt);
-  atualizarCamera();
+  atualizarCamera(dt);
   renderer.render(scene, camera);
   requestAnimationFrame(quadro);
 }
