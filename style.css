@@ -1,0 +1,125 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0d2b16;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #fff;
+  /* Evita zoom, seleção de texto e menu de "copiar" ao segurar o dedo */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#jogo {
+  position: fixed;
+  inset: 0;
+}
+
+#jogo canvas {
+  display: block;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 10px) 16px calc(env(safe-area-inset-bottom) + 18px);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+#topo {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+#titulo {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  font-size: 14px;
+}
+
+#versao {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+#info {
+  margin-top: 6px;
+  font-size: 15px;
+}
+
+#mensagem {
+  margin-top: 4px;
+  min-height: 22px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+#controles {
+  margin-top: auto;
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+#barra {
+  width: 100%;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  overflow: hidden;
+}
+
+#barra-preenchida {
+  height: 100%;
+  clip-path: inset(0 100% 0 0);
+  background: linear-gradient(90deg, #f7d84a, #f39c12 70%, #e74c3c);
+}
+
+#botao-chute {
+  pointer-events: auto;
+  touch-action: none;
+  width: 100%;
+  height: 64px;
+  border: none;
+  border-radius: 32px;
+  background: #f7d84a;
+  color: #1b2a12;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  box-shadow: 0 4px 0 #b8971a, 0 6px 14px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+#botao-chute.pressionado {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #b8971a, 0 3px 8px rgba(0, 0, 0, 0.35);
+  background: #ffe36b;
+}
+
+#dica {
+  font-size: 13px;
+  opacity: 0.9;
+  text-align: center;
+}

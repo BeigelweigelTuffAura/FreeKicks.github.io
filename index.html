@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d2b16">
+  <title>Free Kick Legends</title>
+  <link rel="stylesheet" href="style.css?v=1">
+  <!-- Three.js (biblioteca de 3D) em versão fixa, carregada de um CDN -->
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="jogo"></div>
+
+  <div id="hud">
+    <div id="topo">
+      <div id="titulo">FREE KICK LEGENDS</div>
+      <div id="versao"></div>
+    </div>
+    <div id="info"></div>
+    <div id="mensagem"></div>
+
+    <div id="controles">
+      <div id="barra"><div id="barra-preenchida"></div></div>
+      <button id="botao-chute" type="button">CHUTAR</button>
+      <div id="dica">Segure para carregar a força. Solte para chutar.</div>
+    </div>
+  </div>
+
+  <noscript>Este jogo precisa de JavaScript ligado.</noscript>
+  <script type="module" src="js/main.js?v=1"></script>
+</body>
+</html>
