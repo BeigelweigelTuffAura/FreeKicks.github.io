@@ -4,12 +4,9 @@
 // Eixos: x = direita de quem cobra, y = para cima, z = do gol em direção a quem cobra (gol em z = 0).
 //
 // Como ele pensa: depois do chute, demora o tempo de reação (mais um pouco se a barreira tapou a visão).
-// Aí "lê" a bola: simula uma cópia dela até o plano onde ele está e erra um pouco. Da curva que a bola
-// ainda vai fazer ele só percebe uma parte (o resto ele lê como se a bola fosse reta); a curva que vai
-// longe dele e a bola sem rotação ele lê pior. Vai dando passos para o lado e relendo; com a leitura
-// incerta, vai com cautela e espera mais uma olhada antes de se jogar. Quando o tempo aperta, mergulha
-// e não muda mais de ideia.
-// Defende o fácil e sofre no ângulo.
+// Aí "lê" a bola: simula uma cópia dela até o plano onde ele está e erra um pouco (mais na bola com
+// curva e na sem rotação). Vai dando passos para o lado e relendo; quando o tempo aperta, mergulha
+// e não muda mais de ideia. Defende o fácil e sofre no ângulo.
 
 import { passo } from './physics.js?v=4';
 
@@ -18,11 +15,8 @@ export const PADRAO_GOLEIRO = {
   atrasoBarreira: 0.12,     // s a mais quando a bola passa por cima da barreira (visão tapada)
   erroLeitura: 0.5,         // m: erro típico (desvio padrão) ao prever onde a bola vai chegar
   distanciaLeitura: 15,     // m: com a bola a essa distância o erro é o erroLeitura cheio; mais perto, lê melhor
-  percepcaoCurva: 0.6,      // quanto da curva que a bola ainda vai fazer ele enxerga (1 = tudo; 0 = acha que vai reta)
-  variacaoPercepcao: 0.2,   // para mais ou para menos, sorteado em cada cobrança
-  pesoCurva: 0.8,           // erro a mais por metro de curva que falta, quando a bola vai longe dele (perto, quase nada)
+  pesoCurva: 2.5,           // erro a mais por metro de curva que a bola ainda vai fazer (na direção da curva)
   pesoSemRotacao: 1,        // erro a mais na bola sem rotação (vezes a intensidade da dança)
-  confianca: 0.5,           // m: com a leitura mais incerta que isso, espera mais uma olhada antes de mergulhar (se der tempo)
   intervaloLeitura: 0.12,   // s entre uma releitura e outra, enquanto ainda não mergulhou
   velocidadeLateral: 2.5,   // m/s nos passos para o lado
   aceleracaoLateral: 12,    // m/s²: quão rápido ele arranca e freia nos passos
@@ -45,7 +39,6 @@ const suave = (t) => {
   const u = limitar(t, 0, 1);
   return u * u * (3 - 2 * u);
 };
-const misturar = (a, b, k) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k });
 
 // ---------- Corpo ----------
 // O corpo é uma linha do quadril até a cabeça (o "eixo"), que tomba de lado no mergulho.
@@ -60,32 +53,14 @@ const OMBRO = 0.52;             // m do quadril até a altura dos ombros
 // Tronco, quadril e pernas são cápsulas atravessadas (de um ombro ao outro, de uma perna à outra):
 // de frente o corpo é largo, de lado é fino.
 const PARTES = [
+  { parte: 'perna', d: -0.66, meia: 0.14, r: 0.1 },   // canelas (pernas abertas)
   { parte: 'perna', d: -0.3, meia: 0.1, r: 0.13 },    // coxas
   { parte: 'tronco', d: 0.12, meia: 0.1, r: 0.16 },   // barriga
   { parte: 'tronco', d: 0.4, meia: 0.17, r: 0.15 },   // peito e ombros
   { parte: 'cabeca', d: 0.7, meia: 0, r: 0.12 },
 ];
-// Canelas e pés: uma cápsula do joelho ao pé em cada perna, como no boneco desenhado. De pé, as
-// pernas ficam abertas; deitado no mergulho, a perna de cima fica esticada e aberta e a de baixo
-// dobra, com o pé perto do corpo. Pontos: [d ao longo do eixo, para o lado de fora, para a frente].
-const PERNAS = {
-  dePe: { joelho: [-0.45, 0.15, 0], pe: [-0.86, 0.26, 0] },
-  deCima: { joelho: [-0.4, 0.25, 0], pe: [-0.86, 0.44, 0] },
-  deBaixo: { joelho: [-0.42, 0.1, 0.18], pe: [-0.84, 0.1, 0.02] },
-  r: 0.09,
-};
 const ROLAGEM_MAX = 1.4;        // rad: corpo quase deitado no mergulho completo
 const GRAVIDADE = 9.81;
-const BRACO_MAX = 0.72;         // m do ombro ao meio da palma: o braço do boneco desenhado, um pouco esticado
-const FRENTE_BOLA = 0.06;       // m: a bola presa fica um pouco à frente das mãos
-// Onde ele guarda a bola encaixada: na frente da barriga, abraçada (a partir do centro do corpo)
-const ABRACO_ALTURA = -0.04;    // m ao longo do eixo do corpo
-const ABRACO_FRENTE = 0.38;     // m para a frente
-const ABRACO = 0.25;            // s para trazer a bola encaixada até o peito
-const ULTIMA_OLHADA = 0.25;     // s: se depois da próxima olhada sobrar menos que isso até a bola chegar, ele não espera mais
-const SEM_SEGURAR = 0.15;
-const LONGE_CURVA = 2.5;        // m: com a bola chegando a essa distância dele (ou mais), a curva atrapalha por inteiro
-const MARGEM_GOL = 0.35;        // m: lendo a bola até isso fora do gol, ele ainda vai nela       // s depois de espalmar sem poder encaixar a mesma bola (a mão ainda está vindo)
 
 // Centro do corpo mais baixo possível para uma rolagem: de pé (ajoelhado) ~0,82 m; deitado de lado
 // ~0,33 m. Tombado, quem segura é a coxa (as canelas dobram).
@@ -144,20 +119,15 @@ export function criarGoleiro(posBola, barreira, cfg = {}) {
     reacao: Infinity,         // instante (s depois do chute) em que reage
     reagiu: false,
     erro: { x: 0, y: 0 },     // erro de leitura sorteado na reação (em desvios padrão)
-    percepcao: c.percepcaoCurva, // quanto da curva ele enxerga nesta cobrança (sorteado na reação)
-    leitura: null,            // { x, y, t, real: {x, y}, sigma, curva, incerteza }: onde ele acha que a bola vai chegar
+    leitura: null,            // { x, y, t, real: {x, y}, sigma, curva }: onde ele acha que a bola vai chegar
     proximaLeitura: 0,
-    emDuvida: false,          // já era hora de ir, mas a leitura estava incerta: espera a próxima olhada
     batidasVistas: 0,
     esperandoReleitura: false,
     mergulho: null,
     segurando: false,
-    encaixe: null,            // { t0, dur, rel0 }: a bola presa indo até o peito
-    bolaPresa: null,          // onde fica a bola presa nas mãos {x, y, z}
     velCorpo: { x: 0, y: 0 },  // velocidade do centro do corpo (a mão que vem no mergulho empurra a bola)
     maos: null,               // [mão direita, mão esquerda] do goleiro
     ultimoContato: -Infinity, // instante do último toque na bola
-    ultimoEspalmo: -Infinity, // instante da última espalmada
     _anterior: null,
     _bola: null,
   };
@@ -227,40 +197,33 @@ function passaPelaBarreira(bola, b, fis) {
   return false;
 }
 
-// Lê a bola: previsão com o efeito, mas da curva que a bola ainda vai fazer (diferença entre a
-// previsão com efeito e a "reta") ele só enxerga a parte g.percepcao: o resto ele lê como se a bola
-// fosse reta. Por isso a curva que leva a bola para longe dele engana, e a que traz a bola para ele
-// quase não atrapalha; e o engano some quando a bola chega perto (já não falta curva para fazer).
-// Em cima disso vem um erro gaussiano (o mesmo sorteio em todas as releituras), proporcional à
-// distância que a bola ainda vai andar (perto é mais fácil de ler; e a bola rápida chega de mais
-// longe no mesmo tempo, então é mais difícil). Ele é maior na bola sem rotação e na bola com curva
-// que vai longe dele (no canto é difícil julgar onde a curva termina; vindo nele, é só ajeitar as mãos).
+// Lê a bola: previsão com o efeito + erro gaussiano. O erro cresce com a curva que a bola ainda vai
+// fazer (distância entre a previsão com efeito e a "reta") e com a dança da bola sem rotação,
+// e é proporcional à distância que a bola ainda vai andar (perto é mais fácil de ler; e a bola rápida
+// chega de mais longe no mesmo tempo, então é mais difícil).
 function lerBola(g, bola, c, fis) {
   const real = preverCruzamento(bola, g.z, fis);
   if (!real) {
     g.leitura = null;
     return;
   }
-  const reta = preverCruzamento(bola, g.z, fis, true) || real;
-  // Curva que a bola ainda vai fazer, de lado e na altura (a folha seca "cai" fora da reta)
-  const curvaX = limitar(reta.x - real.x, -3, 3);
-  const curvaY = limitar(reta.y - real.y, -3, 3);
-  const engano = 1 - g.percepcao;
+  const reta = preverCruzamento(bola, g.z, fis, true);
+  // Curva que a bola ainda vai fazer, separada em lateral e vertical: o erro cresce na direção dela
+  const curvaX = reta ? Math.min(Math.abs(real.x - reta.x), 3) : 0;
+  const curvaY = reta ? Math.min(Math.abs(real.y - reta.y), 3) : 0;
   const danca = bola.danca ? bola.danca.intensidade || 0 : 0;
   const falta = Math.hypot(real.x - bola.pos.x, real.y - bola.pos.y, g.z - bola.pos.z);
   const perto = limitar(falta / Math.max(0.5, c.distanciaLeitura), 0.2, 1.6);
-  const curva = Math.hypot(curvaX, curvaY);
-  const longe = limitar(Math.abs(real.x - g.cx) / LONGE_CURVA, 0, 1);
-  const sigma = c.erroLeitura * perto * (1 + c.pesoCurva * Math.min(curva, 1.5) * longe + c.pesoSemRotacao * danca);
+  const base = c.erroLeitura * perto;
+  const sigmaX = base * (1 + c.pesoCurva * curvaX + c.pesoSemRotacao * danca);
+  const sigmaY = base * (1 + c.pesoCurva * curvaY + c.pesoSemRotacao * danca);
   g.leitura = {
-    x: real.x + engano * curvaX + g.erro.x * sigma,
-    y: Math.max(0.12, real.y + engano * curvaY + g.erro.y * sigma),
+    x: real.x + g.erro.x * sigmaX,
+    y: Math.max(0.12, real.y + g.erro.y * sigmaY),
     t: g.tempo + real.t,
     real: { x: real.x, y: real.y },
-    sigma,
-    curva,
-    // O quanto ele sabe que pode estar errado: o erro típico mais a curva que ele sabe que não enxerga
-    incerteza: sigma + (1 - c.percepcaoCurva) * curva,
+    sigma: Math.hypot(sigmaX, sigmaY) / Math.SQRT2,
+    curva: Math.hypot(curvaX, curvaY),
   };
 }
 
@@ -344,9 +307,6 @@ function planejar(g, alvo, c, meiaAltura) {
   };
 }
 
-// Mergulho de verdade (de lado, tombando bastante): termina deitado no chão
-const deitaDeLado = (m) => m.lado !== 0 && Math.abs(m.rolagem) > 0.5;
-
 function comecarMergulho(g, plano, t) {
   const dir = plano.dist > 1e-6
     ? { x: (plano.Cf.x - plano.C0.x) / plano.dist, y: (plano.Cf.y - plano.C0.y) / plano.dist }
@@ -374,17 +334,13 @@ function comecarMergulho(g, plano, t) {
 // ---------- Atualização ----------
 
 // Chamar a cada quadro (ou a cada passo da física). Devolve g.pose.
-//   cfg: o CONFIG do jogo (obrigatório: a previsão da bola usa gravidade, arrasto etc.).
 //   opcoes.chutou: a bola já foi chutada. opcoes.tempoDesdeChute: segundos desde o chute.
 //   opcoes.cfgFisica: config da física para simular a bola (padrão: cfg).
 //   opcoes.aleatorio: função de 0 a 1 para o erro de leitura (padrão: Math.random).
 // Crie um goleiro novo (criarGoleiro) a cada cobrança.
-export function atualizarGoleiro(g, bola, dt, cfg, opcoes = {}) {
+export function atualizarGoleiro(g, bola, dt, cfg = {}, opcoes = {}) {
   const c = lerCfg(cfg);
   const fis = opcoes.cfgFisica || cfg;
-  if (!fis || !Number.isFinite(fis.gravidade)) {
-    throw new Error('atualizarGoleiro: passe o CONFIG do jogo em cfg (ou em opcoes.cfgFisica): a previsão da bola precisa da física');
-  }
   const aleatorio = opcoes.aleatorio || Math.random;
   const meia = (cfg.golLargura ?? 7.32) / 2;
   const alturaGol = cfg.golAltura ?? 2.44;
@@ -429,14 +385,15 @@ export function atualizarGoleiro(g, bola, dt, cfg, opcoes = {}) {
     g.rotacaoY += limitar(alvoGiro - g.rotacaoY, -3 * dt, 3 * dt);
   }
 
-  // Rebote fraco perto dele depois de uma defesa: ele cai em cima da bola e a puxa para o peito
-  // (a bola desliza até as mãos em alguns quadros, sem pular)
+  // Rebote fraco perto dele depois de uma defesa: ele cai em cima da bola
   const r = cfg.raioBola ?? 0.11;
   if (!g.segurando && Number.isFinite(g.ultimoContato) && t - g.ultimoContato > 0.12) {
     const rapidez = Math.hypot(bola.vel.x, bola.vel.y, bola.vel.z);
-    const longe = Math.hypot(bola.pos.x - g.cx, bola.pos.y - g.cy, bola.pos.z - g.z);
-    if (rapidez < 5 && longe < c.alcance + 0.3 && bola.pos.z > r + 0.05) {
-      encaixar(g, bola.pos, ABRACO + 0.2 * longe);
+    const perto = Math.hypot(bola.pos.x - g.cx, bola.pos.y - g.cy, bola.pos.z - g.z) < c.alcance + 0.3;
+    if (rapidez < 5 && perto && bola.pos.z > r + 0.05) {
+      if (!g.mergulho) comecarMergulho(g, planejar(g, bola.pos, c, alturaGol), t);
+      g.mergulho.T = { x: bola.pos.x, y: Math.max(r, bola.pos.y) };
+      g.segurando = true;
       g.estado = 'segurou';
       bola.eventos.push({ tipo: 'defesa', modo: 'segurou', parte: 'rebote', impacto: rapidez, x: bola.pos.x, y: bola.pos.y, z: bola.pos.z });
     }
@@ -447,11 +404,9 @@ export function atualizarGoleiro(g, bola, dt, cfg, opcoes = {}) {
   } else if (t >= g.reacao) {
     if (!g.reagiu) {
       // Reação: sorteia o erro de leitura desta cobrança (o mesmo nas releituras)
-      // e quanto da curva ele vai enxergar
       g.reagiu = true;
       const n = sortearNormal(aleatorio);
       g.erro = { x: limitar(n.a, -2.5, 2.5), y: limitar(n.b, -2.5, 2.5) };
-      g.percepcao = limitar(c.percepcaoCurva + c.variacaoPercepcao * (2 * aleatorio() - 1), 0, 1);
       g.proximaLeitura = t;
       g.estado = 'posicionando';
     }
@@ -460,7 +415,6 @@ export function atualizarGoleiro(g, bola, dt, cfg, opcoes = {}) {
       lerBola(g, bola, c, fis);
       g.proximaLeitura = t + c.intervaloLeitura;
       g.esperandoReleitura = false;
-      g.emDuvida = false;
       leuAgora = true;
     }
     posicionar(g, bola, dt, c, fis, t, meia, alturaGol, leuAgora);
@@ -470,47 +424,30 @@ export function atualizarGoleiro(g, bola, dt, cfg, opcoes = {}) {
   return g.pose;
 }
 
-// Antes de mergulhar: passos para o lado e decide a hora de mergulhar.
-// Hora de ir = o tempo até a bola chegar mal dá para o mergulho até onde ele leu. Aí ele dá uma
-// última olhada e se joga; mas se a leitura estiver incerta (curva forte, bola dançando, chute de
-// longe) e ainda der tempo, espera a próxima olhada: assim nunca se joga longe da bola só porque
-// a primeira impressão foi ruim (e, esperando, chega mais tarde no canto).
+// Antes de mergulhar: passos para o lado e decide a hora de mergulhar
 function posicionar(g, bola, dt, c, fis, t, meia, alturaGol, leuAgora) {
-  const vaiNoGol = (L) => L && Math.abs(L.x) < meia + MARGEM_GOL && L.y < alturaGol + MARGEM_GOL;
-  const horaDeIr = (L, plano) => {
-    const embalo = plano.dist > 1e-6 ? (g.vx * (plano.Cf.x - plano.C0.x)) / plano.dist : 0;
-    return L.t - t <= tempoDeMergulho(plano.dist, c, embalo, plano.preparo) + c.margemMergulho;
-  };
-  // Dá para esperar a próxima olhada e ainda sobrar tempo para um mergulho?
-  const daParaEsperar = (L) => L.t - t - c.intervaloLeitura > ULTIMA_OLHADA;
-  let L = g.leitura;
+  const vaiNoGol = (L) => L && Math.abs(L.x) < meia + 0.35 && L.y < alturaGol + 0.3;
+  const L = g.leitura;
   if (vaiNoGol(L) && !g.esperandoReleitura) {
-    let plano = planejar(g, L, c, alturaGol);
-    if (horaDeIr(L, plano)) {
-      const acabouEspera = g.emDuvida && !daParaEsperar(L);
-      if (!leuAgora && (!g.emDuvida || acabouEspera)) {
-        // Uma última olhada na bola antes de se jogar (conta como uma releitura)
-        lerBola(g, bola, c, fis);
-        g.proximaLeitura = t + c.intervaloLeitura;
-        leuAgora = true;
-        L = g.leitura;
-        plano = vaiNoGol(L) ? planejar(g, L, c, alturaGol) : null;
+    const plano = planejar(g, L, c, alturaGol);
+    const embalo = plano.dist > 1e-6 ? (g.vx * (plano.Cf.x - plano.C0.x)) / plano.dist : 0;
+    if (L.t - t <= tempoDeMergulho(plano.dist, c, embalo, plano.preparo) + c.margemMergulho) {
+      // Hora de ir: uma última olhada na bola antes de se jogar
+      if (leuAgora) {
+        comecarMergulho(g, plano, t);
+        return;
       }
-      if (plano && leuAgora) {
-        if (L.incerteza <= c.confianca || acabouEspera || !daParaEsperar(L)) {
-          comecarMergulho(g, plano, t);
-          return;
-        }
-        g.emDuvida = true;
+      lerBola(g, bola, c, fis);
+      if (vaiNoGol(g.leitura)) {
+        comecarMergulho(g, planejar(g, g.leitura, c, alturaGol), t);
+        return;
       }
     }
   }
-  // Passos laterais: acelera até a velocidade lateral e freia para parar no lugar.
-  // Na dúvida (leitura incerta) ele vai com cautela, mais devagar, esperando ver melhor a bola.
+  // Passos laterais: acelera até a velocidade lateral e freia para parar no lugar
   const xAlvo = g.leitura ? limitar(g.leitura.x, -(meia - 0.4), meia - 0.4) : g.base.x;
   const dx = xAlvo - g.cx;
-  const cautela = L ? limitar(c.confianca / Math.max(1e-3, L.incerteza), 0.35, 1) : 1;
-  const desejada = Math.sign(dx) * Math.min(c.velocidadeLateral * cautela, Math.sqrt(2 * c.aceleracaoLateral * Math.abs(dx)));
+  const desejada = Math.sign(dx) * Math.min(c.velocidadeLateral, Math.sqrt(2 * c.aceleracaoLateral * Math.abs(dx)));
   g.vx += limitar(desejada - g.vx, -c.aceleracaoLateral * dt, c.aceleracaoLateral * dt);
   g.cx += g.vx * dt;
   g.cy += (CENTRO_PRONTO - g.cy) * Math.min(1, dt * 10);
@@ -528,7 +465,7 @@ function avancarMergulho(g, bola, dt, c, t) {
   const L = g.leitura;
   const tocou = Number.isFinite(g.ultimoContato);
   const bolaPassou = g.segurando || tocou || bola.pos.z < g.z - 0.25 || (L && t > L.t + 0.15);
-  const deLado = deitaDeLado(m);
+  const deLado = m.lado !== 0 && Math.abs(m.rolagem) > 0.5; // mergulho de verdade: termina deitado
 
   if (!m.chegou) {
     // Arranca durante o preparo e depois voa na velocidade máxima, em linha reta até o ponto
@@ -588,69 +525,12 @@ function eixos(g) {
     y: Math.cos(g.rolagem),
     z: Math.sin(g.rolagem) * L.z,
   };
-  // Eixo dos ombros (de um lado do corpo ao outro), tombado junto com a rolagem
-  const O = { x: Math.cos(g.rolagem) * L.x, y: -Math.sin(g.rolagem), z: Math.cos(g.rolagem) * L.z };
-  return { F, L, U, O };
+  return { F, L, U };
 }
 
-// Ponto do corpo: d ao longo do eixo a partir do quadril, lado ao longo dos ombros, frente para a bola
-function noCorpo(g, { F, U, O }, d, lado = 0, frente = 0) {
-  return {
-    x: g.cx + U.x * (d - CENTRO) + O.x * lado + F.x * frente,
-    y: g.cy + U.y * (d - CENTRO) + O.y * lado,
-    z: g.z + U.z * (d - CENTRO) + O.z * lado + F.z * frente,
-  };
-}
-
-// Ombro de cada lado: s = −1 é o ombro direito do goleiro (lado −L), +1 o esquerdo
-const ombroDoGoleiro = (g, eixo, s) => noCorpo(g, eixo, OMBRO, 0.2 * s);
-
-// A mão não vai além do comprimento do braço
-function noBraco(mao, ombro) {
-  const dx = mao.x - ombro.x;
-  const dy = mao.y - ombro.y;
-  const dz = mao.z - ombro.z;
-  const d = Math.hypot(dx, dy, dz);
-  if (d <= BRACO_MAX) return mao;
-  const k = BRACO_MAX / d;
-  return { x: ombro.x + dx * k, y: ombro.y + dy * k, z: ombro.z + dz * k };
-}
-
-// Começa a segurar a bola que está em p: ela vai, junto com as mãos, até o peito em `dur` segundos
-// (sem pular de uma vez para as mãos)
-function encaixar(g, p, dur) {
-  g.segurando = true;
-  g.encaixe = { t0: g.tempo, dur, rel0: { x: p.x - g.cx, y: p.y - g.cy, z: p.z - g.z } };
-  g.bolaPresa = { x: p.x, y: p.y, z: p.z };
-}
-
-// Onde está a bola presa: sai de onde ele pegou (acompanhando o corpo) e vai até a frente do peito
-function posicaoDaBolaPresa(g, { F, U }) {
-  const e = g.encaixe;
-  const k = suave((g.tempo - e.t0) / Math.max(1e-3, e.dur));
-  const peito = {
-    x: U.x * ABRACO_ALTURA + F.x * ABRACO_FRENTE,
-    y: U.y * ABRACO_ALTURA,
-    z: U.z * ABRACO_ALTURA + F.z * ABRACO_FRENTE,
-  };
-  const rel = misturar(e.rel0, peito, k);
-  return { x: g.cx + rel.x, y: g.cy + rel.y, z: g.z + rel.z };
-}
-
-// Mãos segurando a bola no ponto P: uma de cada lado, um pouco atrás e embaixo dela
-function maosNaBola(P, { F, U, O }) {
-  return [-1, 1].map((s) => ({
-    x: P.x - F.x * FRENTE_BOLA + O.x * 0.15 * s - U.x * 0.05,
-    y: P.y + O.y * 0.15 * s - U.y * 0.05,
-    z: P.z - F.z * FRENTE_BOLA + O.z * 0.15 * s - U.z * 0.05,
-  }));
-}
-
-// Posição das mãos: na espera, na frente do peito; no mergulho, esticadas para o alvo;
-// segurando, em volta da bola
+// Posição das mãos: na espera, na frente do peito; no mergulho, esticadas para o alvo
 function calcularMaos(g, c) {
-  const eixo = eixos(g);
-  const { F, L, U } = eixo;
+  const { F, L, U } = eixos(g);
   const C = { x: g.cx, y: g.cy, z: g.z };
   const H = { x: C.x - U.x * CENTRO, y: C.y - U.y * CENTRO, z: C.z - U.z * CENTRO };
   const pronto = [-1, 1].map((s) => ({
@@ -658,50 +538,47 @@ function calcularMaos(g, c) {
     y: H.y + U.y * 0.38,
     z: H.z + U.z * 0.38 + L.z * 0.3 * s + F.z * 0.22,
   }));
-  let maos = pronto;
   const m = g.mergulho;
   const w = suave((g.bracos - 0.35) / 0.65);
-  if (m && w > 0) {
-    // Direção e quanto esticar: até o alvo, no máximo o alcance
-    const ex = m.T.x - C.x;
-    const ey = m.T.y - C.y;
-    const d = Math.hypot(ex, ey);
-    let D = d > 1e-3 ? { x: ex / d, y: ey / d } : { x: 0, y: 1 };
-    let estica = Math.min(c.alcance, d);
-    // Deitado depois do lance, os braços acompanham o corpo (esticados além da cabeça). Gira o
-    // ângulo dos braços aos poucos, pelo caminho mais curto (misturar as direções passaria pelo zero)
-    const queda = !g.segurando && deitaDeLado(m) ? suave(m.queda || 0) : 0;
-    if (queda > 0) {
-      const ux = U.x * L.x + U.z * L.z; // eixo do corpo no plano do goleiro
-      const a = Math.atan2(D.y, D.x);
-      let da = Math.atan2(U.y, ux) - a;
-      da = Math.atan2(Math.sin(da), Math.cos(da));
-      D = { x: Math.cos(a + da * queda), y: Math.sin(a + da * queda) };
-      estica += (c.alcance * 0.9 - estica) * queda;
-    }
-    const frente = 0.12 + 0.14 * (1 - estica / c.alcance);
-    const P = { x: -D.y, y: D.x }; // perpendicular, para separar as duas mãos
-    const mergulho = [-1, 1].map((s) => ({
-      x: C.x + D.x * estica + P.x * 0.09 * s + F.x * frente,
-      y: C.y + D.y * estica + P.y * 0.09 * s,
-      z: C.z + F.z * frente,
-    }));
-    // Junta cada mão de espera com a mão de mergulho do mesmo lado do corpo
-    const lado = (p) => (p.x - C.x) * L.x + (p.z - C.z) * L.z;
-    if (lado(mergulho[0]) > lado(mergulho[1])) mergulho.reverse();
-    maos = pronto.map((p, i) => misturar(p, mergulho[i], w));
+  if (!m || w <= 0) return pronto;
+
+  // Direção e quanto esticar: até o alvo, no máximo o alcance; segurando, traz a bola para o peito.
+  // Caindo depois do lance, os braços acompanham o corpo (esticados além da cabeça).
+  let ex = m.T.x - C.x;
+  let ey = m.T.y - C.y;
+  let d = Math.hypot(ex, ey);
+  if (d < 1e-3) {
+    ex = 0;
+    ey = 1;
+    d = 1e-3;
   }
-  if (g.segurando && g.bolaPresa) {
-    // Encaixou: as mãos vão logo para a bola e a levam junto até o peito
-    const k = suave((g.tempo - g.encaixe.t0) / Math.max(1e-3, g.encaixe.dur * 0.35));
-    const naBola = maosNaBola(g.bolaPresa, eixo);
-    maos = maos.map((p, i) => misturar(p, naBola[i], k));
+  let estica = Math.min(c.alcance, d);
+  const queda = m.queda || 0;
+  if (queda > 0) {
+    const k = suave(queda);
+    const ux = U.x * L.x + U.z * L.z; // eixo do corpo no plano do goleiro
+    ex = (ex / d) * (1 - k) + ux * k;
+    ey = (ey / d) * (1 - k) + U.y * k;
+    d = Math.hypot(ex, ey) || 1;
+    estica += (c.alcance * 0.9 - estica) * k;
   }
-  // Nenhuma mão vai além do comprimento do braço, nem entra no gramado
-  return maos.map((p, i) => {
-    const mao = noBraco(p, ombroDoGoleiro(g, eixo, i === 0 ? -1 : 1));
-    return { x: mao.x, y: Math.max(0.06, mao.y), z: mao.z };
-  });
+  if (g.segurando) estica = Math.min(estica, 0.3);
+  const frente = 0.12 + 0.14 * (1 - estica / c.alcance);
+  const D = { x: ex / d, y: ey / d };
+  const P = { x: -D.y, y: D.x }; // perpendicular, para separar as duas mãos
+  const mergulho = [-1, 1].map((s) => ({
+    x: C.x + D.x * estica + P.x * 0.09 * s + F.x * frente,
+    y: C.y + D.y * estica + P.y * 0.09 * s,
+    z: C.z + F.z * frente,
+  }));
+  // Junta cada mão de espera com a mão de mergulho do mesmo lado do corpo
+  const lado = (p) => (p.x - C.x) * L.x + (p.z - C.z) * L.z;
+  if (lado(mergulho[0]) > lado(mergulho[1])) mergulho.reverse();
+  return pronto.map((p, i) => ({
+    x: p.x + (mergulho[i].x - p.x) * w,
+    y: p.y + (mergulho[i].y - p.y) * w,
+    z: p.z + (mergulho[i].z - p.z) * w,
+  }));
 }
 
 function montarPose(g, c) {
@@ -725,7 +602,6 @@ function montarPose(g, c) {
 
 function terminarQuadro(g, c, dt, cxAntes, cyAntes) {
   if (dt > 0) g.velCorpo = { x: (g.cx - cxAntes) / dt, y: (g.cy - cyAntes) / dt };
-  if (g.segurando && g.encaixe) g.bolaPresa = posicaoDaBolaPresa(g, eixos(g));
   g.maos = calcularMaos(g, c);
   g.pose = montarPose(g, c);
 }
@@ -735,37 +611,33 @@ function terminarQuadro(g, c, dt, cxAntes, cyAntes) {
 // Com `ate`, a parte é uma cápsula de (x, y, z) até `ate`. Servem para a colisão e para desenhar
 // o "esqueleto" ao depurar.
 export function partesDoGoleiro(g) {
-  const eixo = eixos(g);
+  const { L, U } = eixos(g);
+  const H = { x: g.cx - U.x * CENTRO, y: g.cy - U.y * CENTRO, z: g.z - U.z * CENTRO };
+  // Eixo dos ombros: o lado do corpo, tombado junto com a rolagem
+  const co = Math.cos(g.rolagem);
+  const se = Math.sin(g.rolagem);
+  const ombros = { x: co * L.x, y: -se, z: co * L.z };
   // (nada fica abaixo do chão: perto dele as pernas dobram)
-  const capsula = (parte, d, de, ate, r) => {
-    const a = noCorpo(g, eixo, d, de);
-    const b = noCorpo(g, eixo, d, ate);
-    return { parte, x: a.x, y: Math.max(r, a.y), z: a.z, ate: { x: b.x, y: Math.max(r, b.y), z: b.z }, r };
-  };
   const lista = PARTES.map(({ parte, d, meia, r }) => {
-    if (!meia) {
-      const m = noCorpo(g, eixo, d);
-      return { parte, ...m, y: Math.max(r, m.y), r };
-    }
-    return capsula(parte, d, -meia, meia, r);
+    const m = { x: H.x + U.x * d, y: H.y + U.y * d, z: H.z + U.z * d };
+    if (!meia) return { parte, ...m, y: Math.max(r, m.y), r };
+    return {
+      parte,
+      x: m.x - ombros.x * meia,
+      y: Math.max(r, m.y - ombros.y * meia),
+      z: m.z - ombros.z * meia,
+      ate: { x: m.x + ombros.x * meia, y: Math.max(r, m.y + ombros.y * meia), z: m.z + ombros.z * meia },
+      r,
+    };
   });
-  // Canelas e pés (de pé, abertos; deitado, a perna de cima esticada e a de baixo dobrada)
-  const deitado = limitar(Math.abs(g.rolagem), 0, 1);
-  const s = Math.sign(g.rolagem) || 1; // o lado para onde ele tomba fica embaixo
-  const ponto = (a, b, lado) => {
-    const [d, fora, frente] = a.map((v, k) => v + (b[k] - v) * deitado);
-    const p = noCorpo(g, eixo, d, lado * fora, frente);
-    return { x: p.x, y: Math.max(PERNAS.r, p.y), z: p.z };
-  };
-  for (const lado of [-1, 1]) {
-    const deitada = lado === s ? PERNAS.deBaixo : PERNAS.deCima;
-    const joelho = ponto(PERNAS.dePe.joelho, deitada.joelho, lado);
-    const pe = ponto(PERNAS.dePe.pe, deitada.pe, lado);
-    lista.push({ parte: 'perna', ...joelho, ate: pe, r: PERNAS.r });
-  }
   const maos = g.maos || [];
   maos.forEach((m, i) => {
-    const ombro = ombroDoGoleiro(g, eixo, i === 0 ? -1 : 1); // mão direita do goleiro fica no lado −L
+    const s = i === 0 ? -1 : 1; // mão direita do goleiro fica no lado −L
+    const ombro = {
+      x: H.x + U.x * OMBRO + ombros.x * 0.2 * s,
+      y: H.y + U.y * OMBRO + ombros.y * 0.2 * s,
+      z: H.z + U.z * OMBRO + ombros.z * 0.2 * s,
+    };
     lista.push({ parte: 'braco', ...ombro, ate: { x: m.x, y: m.y, z: m.z }, r: RAIO_BRACO });
     lista.push({ parte: 'mao', x: m.x, y: m.y, z: m.z, r: RAIO_MAO });
   });
@@ -787,22 +659,21 @@ function pontoMaisPerto(q, p) {
 
 // Colisão da bola com o goleiro. Chamar depois de cada passo(bola, ...).
 // Bola devagar (< velocidadeSegura) nas mãos ou no peito, perto do centro do corpo: ele SEGURA
-// (a bola fica nas mãos, vai junto com elas até o peito e cai junto com ele). Senão ESPALMA: a bola
-// rebate (restituicao) e a mão empurra para o lado ou por cima. Registra
-// bola.eventos.push({ tipo: 'defesa', modo, parte, impacto, x, y, z }), com modo 'segurou' | 'espalmou'
-// e parte 'mao' | 'braco' | 'tronco' | 'cabeca' | 'perna' (no rebote que ele agarra depois: 'rebote').
-// Os toques seguidos de uma mesma espalmada (a mão ainda vindo) contam como um só evento.
+// (a bola fica nas mãos e cai junto com ele). Senão ESPALMA: a bola rebate (restituicao) e a mão
+// empurra para o lado ou por cima. Registra bola.eventos.push({ tipo: 'defesa', modo, parte, impacto, x, y, z }),
+// com modo 'segurou' | 'espalmou' e parte 'mao' | 'braco' | 'tronco' | 'cabeca' | 'perna'.
 export function colidirBolaGoleiro(bola, g, cfg = {}) {
   const c = lerCfg(cfg);
   const r = cfg.raioBola ?? 0.11;
   const { pos, vel, giro } = bola;
 
   if (g.segurando) {
-    // Bola presa nas mãos (atualizada junto com o goleiro, em atualizarGoleiro)
-    const p = g.bolaPresa || pos;
-    pos.x = p.x;
-    pos.y = Math.max(r, p.y);
-    pos.z = Math.max(r + 0.05, p.z);
+    // Bola presa nas mãos
+    const [a, b] = g.maos;
+    const { F } = eixos(g);
+    pos.x = (a.x + b.x) / 2 + F.x * 0.06;
+    pos.y = Math.max(r, (a.y + b.y) / 2);
+    pos.z = Math.max(r + 0.05, (a.z + b.z) / 2 + F.z * 0.06);
     vel.x = vel.y = vel.z = 0;
     giro.x = giro.y = giro.z = 0;
     bola.danca = null;
@@ -883,11 +754,9 @@ export function colidirBolaGoleiro(bola, g, cfg = {}) {
     const dCentro = Math.hypot(p.x - g.cx, p.y - g.cy); // no plano do corpo: o quanto ele precisou esticar
     const qualidade = limitar(1.6 - dCentro / c.alcance, 0.35, 1);
     const deFrente = impacto > 0.5 * rapidez;
-    // (logo depois de espalmar não dá: é a mão que ainda vem no mergulho batendo de novo na bola)
-    const espalmouAgora = g.tempo - g.ultimoEspalmo < SEM_SEGURAR;
-    const podeSegurar = (melhor.parte === 'mao' || melhor.parte === 'tronco') && deFrente && !espalmouAgora;
+    const podeSegurar = (melhor.parte === 'mao' || melhor.parte === 'tronco') && deFrente;
     if (podeSegurar && rapidez < c.velocidadeSegura * qualidade) {
-      encaixar(g, pos, ABRACO);
+      g.segurando = true;
       g.estado = 'segurou';
       g.ultimoContato = g.tempo;
       vel.x = vel.y = vel.z = 0;
@@ -914,10 +783,7 @@ export function colidirBolaGoleiro(bola, g, cfg = {}) {
     if ('curvaTardia' in bola) bola.curvaTardia = null;
     if (impacto > 0.5) {
       g.ultimoContato = g.tempo;
-      g.ultimoEspalmo = g.tempo;
-      if (!espalmouAgora) {
-        bola.eventos.push({ tipo: 'defesa', modo: 'espalmou', parte: melhor.parte, impacto, x: pos.x, y: pos.y, z: pos.z });
-      }
+      bola.eventos.push({ tipo: 'defesa', modo: 'espalmou', parte: melhor.parte, impacto, x: pos.x, y: pos.y, z: pos.z });
     }
   }
 
