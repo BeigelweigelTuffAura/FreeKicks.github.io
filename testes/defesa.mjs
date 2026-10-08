@@ -396,12 +396,32 @@ teste('(2) chute no ângulo (x ±3,3, y 2,1) a 28 m/s com curva, de 22 m: gol em
   console.log(`    gols: ${pct(r.total)} (lado do goleiro ${pct(r.goleiro)}, por cima da barreira ${pct(r.barreira)}; ${r.n} chutes)`);
   assert.ok(r.total >= 0.7, `só ${pct(r.total)}`);
   assert.ok(r.goleiro >= 0.4, `no canto do goleiro só ${pct(r.goleiro)}`);
-  // De frente para o gol, a curva atrapalha a leitura do goleiro (no canto dele)
-  const central = (lateral) => [-3.3, 3.3].map((x) => ({ origem: { x: 0, z: 22 }, alvo: { x, y: 2.1 }, velocidade: 28, lateral: lateral * Math.sign(x) }));
-  const reto = taxaDeGols(central(0), 80);
-  const curva = taxaDeGols([...central(40), ...central(-40)], 40);
-  console.log(`    de frente, no canto do goleiro: sem curva ${pct(reto.goleiro)}, com curva ${pct(curva.goleiro)} de gols`);
-  assert.ok(curva.goleiro > reto.goleiro + 0.05, 'a curva deveria atrapalhar o goleiro');
+  // De frente para o gol, a curva atrapalha a leitura do goleiro: ele erra mais o ponto do mergulho
+  const erroDeLeitura = (lateral) => {
+    let soma = 0;
+    let n = 0;
+    let gols = 0;
+    for (const x of [-3.3, 3.3]) {
+      for (const lat of lateral ? [lateral, -lateral] : [0]) {
+        const chute = mirar({ x: 0, z: 22 }, { x, y: 2.1 }, { velocidade: 28, lateral: lat });
+        for (let s = 1; s <= 40; s++) {
+          const r = cobrar({ chute, semente: s, colisaoBarreira: false });
+          if (ladoDoAlvo(r, x) !== 'goleiro') continue;
+          if (r.resultado === 'gol') gols++;
+          if (r.g.mergulho && r.cruzouGoleiro) {
+            soma += Math.abs(r.g.mergulho.alvoLido.x - r.cruzouGoleiro.x);
+            n++;
+          }
+        }
+      }
+    }
+    return { erro: soma / n, gols: gols / n };
+  };
+  const reto = erroDeLeitura(0);
+  const curva = erroDeLeitura(40);
+  console.log(`    de frente, no canto do goleiro: erro lateral da leitura ${reto.erro.toFixed(2)} m sem curva, ${curva.erro.toFixed(2)} m com curva`);
+  console.log(`    (gols no canto do goleiro: sem curva ${pct(reto.gols)}, com curva ${pct(curva.gols)})`);
+  assert.ok(curva.erro > reto.erro * 1.2, 'a curva deveria atrapalhar a leitura do goleiro');
 });
 
 // (3) Rasteiro no canto a 30 m/s: gol na maioria

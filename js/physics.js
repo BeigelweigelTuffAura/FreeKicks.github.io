@@ -136,7 +136,6 @@ export function chutar(bola, { alvo, forca, contato = { x: 0, y: 0 }, cobrador, 
 
   // Velocidade: a força da barra, até o máximo do cobrador (FOR). Bater fora do centro troca
   // velocidade por efeito; na vertical perde menos, para o rasteiro sair rápido.
-  const distanciaDoCentro = Math.min(1, Math.hypot(contato.x, contato.y));
   const velocidadeMax = cfg.velocidadeMax * p.velocidade;
   const velocidadeBase = cfg.velocidadeMin + (velocidadeMax - cfg.velocidadeMin) * forca;
   const fora = contato.x * contato.x + 0.5 * contato.y * contato.y;
@@ -151,13 +150,7 @@ export function chutar(bola, { alvo, forca, contato = { x: 0, y: 0 }, cobrador, 
     z: frente.z * horizontal,
   };
 
-  // Bola sem rotação: contato bem no centro e chute forte. Quem domina a técnica tem uma zona
-  // maior, consegue com menos força e a bola dança mais; para os outros ela dança menos.
-  const zona = cfg.semRotacaoRaio * (p.semRotacao ? cfg.semRotacaoZonaEspecialista : 1);
-  const forcaMinima = cfg.semRotacaoForcaMinima - (p.semRotacao ? cfg.semRotacaoForcaEspecialista : 0);
-  const noCentro = limitar01(1 - distanciaDoCentro / zona);
-  const forte = limitar01((forca - forcaMinima) / Math.max(1e-6, 1 - forcaMinima));
-  const semRotacao = noCentro * forte;
+  const semRotacao = chanceSemRotacao(forca, contato, p, cfg);
 
   // Giro: contato à direita gira a bola em torno do eixo vertical e ela curva para a esquerda;
   // contato em cima gira para a frente (cai), embaixo gira para trás (flutua).
@@ -191,6 +184,25 @@ export function chutar(bola, { alvo, forca, contato = { x: 0, y: 0 }, cobrador, 
 
   const tecnica = nomearTecnica({ forca, contato, elevacaoNominal, trivela: p.trivela, semRotacao }, cfg);
   return { velocidade, elevacao: elevacao / GRAUS, desvio, desvioVertical, cone, tecnica };
+}
+
+// Bola sem rotação (0 a 1): contato bem no centro e chute forte. Quem domina a técnica tem uma
+// zona maior e consegue com menos força (e, no voo, a bola dança mais; para os outros, menos).
+function chanceSemRotacao(forca, contato, p, cfg) {
+  const zona = cfg.semRotacaoRaio * (p.semRotacao ? cfg.semRotacaoZonaEspecialista : 1);
+  const forcaMinima = cfg.semRotacaoForcaMinima - (p.semRotacao ? cfg.semRotacaoForcaEspecialista : 0);
+  const noCentro = limitar01(1 - Math.min(1, Math.hypot(contato.x, contato.y)) / zona);
+  const forte = limitar01((forca - forcaMinima) / Math.max(1e-6, 1 - forcaMinima));
+  return noCentro * forte;
+}
+
+// Nome da jogada antes de chutar (para a tela mostrar enquanto a pessoa escolhe contato e força).
+// É o mesmo nome que chutar() devolve em "tecnica".
+export function preverTecnica({ forca, contato = { x: 0, y: 0 }, cobrador }, cfg) {
+  const p = perfilDoChute(contato, cobrador, cfg);
+  const elevacaoNominal = elevacaoDoContato(contato.y, p.folhaSeca, cfg);
+  const semRotacao = chanceSemRotacao(limitar01(forca), contato, p, cfg);
+  return nomearTecnica({ forca, contato, elevacaoNominal, trivela: p.trivela, semRotacao }, cfg);
 }
 
 // Nome da jogada, para a tela anunciar

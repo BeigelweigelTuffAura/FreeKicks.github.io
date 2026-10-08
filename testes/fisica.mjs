@@ -1,7 +1,7 @@
 // Testes da física da bola. Rodar com: node testes/fisica.mjs
 import assert from 'node:assert/strict';
 import { CONFIG } from '../js/config.js';
-import { criarBola, chutar, passo, noChao, coneDeErro, COBRADOR_NEUTRO } from '../js/physics.js';
+import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica, COBRADOR_NEUTRO } from '../js/physics.js';
 
 // Simula uma cobrança e devolve onde a bola cruza a barreira (9,15 m) e a linha do gol.
 // caminho: alturas (y) e desvios (x) a cada ponto, com a distância já percorrida.
@@ -347,4 +347,22 @@ teste('determinismo: o mesmo sorteio dá exatamente o mesmo chute', () => {
     return JSON.stringify({ info: c.info, gol: c.gol, danca: c.bola.danca });
   };
   assert.equal(rodar(), rodar());
+});
+
+teste('nome da jogada: cada região da bola tem o seu, e a previsão bate com o chute', () => {
+  const casos = [
+    [0.5, { x: 0, y: 0 }, 'colocado'],
+    [0.85, { x: 0.2, y: 0.1 }, 'pancada'],
+    [0.9, { x: 0, y: 0 }, 'semRotacao'],
+    [0.78, { x: 0, y: 0.5 }, 'folhaSeca'],
+    [0.8, { x: 0, y: 0.9 }, 'rasteiro'],
+    [0.15, { x: 0, y: -0.9 }, 'cavadinha'],
+    [0.7, { x: 0.7, y: 0 }, 'curva'],
+    [0.7, { x: -0.7, y: 0 }, 'trivela'],
+  ];
+  for (const [forca, contato, nome] of casos) {
+    const r = chutar(criarBola({ x: 0, y: CONFIG.raioBola, z: 22 }), { alvo: { x: 0, z: 0 }, forca, contato }, CONFIG, () => 0.5);
+    assert.equal(r.tecnica, nome, `${forca} ${JSON.stringify(contato)}`);
+    assert.equal(preverTecnica({ forca, contato }, CONFIG), nome);
+  }
 });

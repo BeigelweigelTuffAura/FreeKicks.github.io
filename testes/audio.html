@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Teste do som</title>
+  <!-- Mesmo import map do index.html (o som não usa o Three.js, mas a página segue o padrão) -->
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+  <style>
+    body { margin: 0; background: #0d2b16; color: #eef; font: 14px system-ui, sans-serif; }
+    h2 { margin: 18px 12px 6px; font-size: 16px; }
+    p { margin: 0 12px 8px; opacity: 0.8; }
+    .botoes { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 12px 10px; }
+    button { font: inherit; padding: 10px 12px; border-radius: 8px; border: 0; background: #2f6b3d; color: #fff; }
+    button:active { background: #3f8f52; }
+    label { margin: 0 12px; display: flex; align-items: center; gap: 8px; }
+    #resumo { margin: 6px 12px; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
+    table { margin: 0 12px; border-collapse: collapse; font: 12px monospace; }
+    th, td { padding: 3px 6px; border-bottom: 1px solid #ffffff22; text-align: right; white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; }
+    .ok { color: #4ade80; } .falha { color: #f87171; font-weight: bold; }
+    .grafico { margin: 10px 12px; }
+    .grafico b { display: block; margin-bottom: 2px; font-size: 12px; }
+    canvas { display: block; max-width: 100%; border-radius: 4px; background: #000; }
+    #tabela-wrap { overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <!--
+    Teste do som (js/audio.js). Para abrir:
+      python3 -m http.server 8000   (na pasta do projeto)   e   http://localhost:8000/testes/audio.html
+    "Ouvir": toca cada som de verdade (no celular, toque em "Ligar som" primeiro).
+    "Verificação": renderiza cada som sem tocar (OfflineAudioContext) e mede pico, volume (RMS),
+    duração útil, estouro e o espectro. Abra com ?auto para rodar a verificação ao carregar
+    (e ?taxa=44100 para testar outra taxa de amostragem; o padrão é 48000, a do celular).
+    Resultado fica em window.resultadosAudio (e window.verificacaoPronta = true no fim).
+  -->
+  <h2>Ouvir</h2>
+  <p>Toque em "Ligar som" primeiro (o celular só libera som depois de um toque).</p>
+  <div class="botoes" id="botoes"></div>
+  <label>Torcida ambiente <input id="nivel" type="range" min="0" max="1" step="0.05" value="0"> <span id="nivel-valor">0</span></label>
+
+  <h2>Verificação</h2>
+  <div class="botoes"><button id="rodar" type="button">Rodar verificação</button></div>
+  <div id="resumo">—</div>
+  <div id="tabela-wrap"><table id="tabela"></table></div>
+  <div id="graficos"></div>
+
+  <script type="module">
+    import { criarAudio, montarMotor, PADRAO_AUDIO } from '../js/audio.js';
+
+    const $ = (id) => document.getElementById(id);
+    const TAXA = Number(new URLSearchParams(location.search).get('taxa')) || 48000; // ?taxa=44100 testa outra taxa
+
+    // Sorteio repetível (mesmos números a cada execução)
+    function semente(s) {
+      return () => {
+        s |= 0;
+        s = (s + 0x6d2b79f5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    // ---------- Ouvir ----------
+    const cfg = { audio: { ...PADRAO_AUDIO } };
+    const audio = criarAudio(cfg);
+    window.audioTeste = audio; // para os testes automáticos olharem o estado
+    const atrasar = (s, f) => setTimeout(f, s * 1000);
+    const BOTOES = [
+      ['Ligar som', () => audio.iniciar()],
+      ['Mudo', (b) => { audio.mudo = !audio.mudo; b.textContent = audio.mudo ? 'Mudo: SIM' : 'Mudo: não'; }],
+      ['Chute fraco', () => audio.chute(0.2)],
+      ['Chute médio', () => audio.chute(0.6)],
+      ['Chute forte', () => audio.chute(1)],
+      ['Quique', () => audio.quique(0.6)],
+      ['Trave', () => audio.trave()],
+      ['Rede', () => audio.rede()],
+      ['Barreira', () => audio.barreira()],
+      ['Defesa fraca', () => audio.defesa(0.2)],
+      ['Defesa forte', () => audio.defesa(1)],
+      ['Apito', () => audio.apito()],
+      ['Apito final', () => audio.apito('fim')],
+      ['Tensão', () => audio.torcidaTensao()],
+      ['Gol (torcida)', () => audio.torcidaGol()],
+      ['Uuuh', () => audio.torcidaUhh()],
+      ['Cobrança: gol', () => {
+        audio.apito();
+        atrasar(0.9, () => audio.torcidaTensao());
+        atrasar(1.71, () => audio.chute(0.85));
+        atrasar(2.6, () => { audio.rede(); audio.torcidaGol(); });
+      }],
+      ['Cobrança: trave', () => {
+        audio.apito();
+        atrasar(0.9, () => audio.torcidaTensao());
+        atrasar(1.71, () => audio.chute(0.95));
+        atrasar(2.55, () => audio.trave());
+        atrasar(2.62, () => audio.torcidaUhh());
+        atrasar(3.1, () => audio.quique(0.5));
+      }],
+      ['Cobrança: barreira', () => {
+        audio.apito();
+        atrasar(0.9, () => audio.torcidaTensao());
+        atrasar(1.71, () => audio.chute(0.7));
+        atrasar(2.05, () => audio.barreira());
+      }],
+      ['Cobrança: defesa', () => {
+        audio.apito();
+        atrasar(0.9, () => audio.torcidaTensao());
+        atrasar(1.71, () => audio.chute(0.9));
+        atrasar(2.5, () => audio.defesa(0.8));
+        atrasar(2.55, () => audio.torcidaUhh());
+      }],
+    ];
+    for (const [nome, acao] of BOTOES) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = nome;
+      b.addEventListener('click', () => {
+        audio.iniciar();
+        acao(b);
+      });
+      $('botoes').appendChild(b);
+    }
+    $('nivel').addEventListener('input', (e) => {
+      audio.iniciar();
+      audio.torcidaAmbiente(Number(e.target.value));
+      $('nivel-valor').textContent = e.target.value;
+    });
+    (function laco() {
+      audio.atualizar(1 / 60);
+      requestAnimationFrame(laco);
+    })();
+
+    // ---------- Análise ----------
+
+    function fft(re, im) {
+      const n = re.length;
+      for (let i = 1, j = 0; i < n; i++) {
+        let bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) {
+          [re[i], re[j]] = [re[j], re[i]];
+          [im[i], im[j]] = [im[j], im[i]];
+        }
+      }
+      for (let tam = 2; tam <= n; tam <<= 1) {
+        const ang = (-2 * Math.PI) / tam;
+        const wr = Math.cos(ang);
+        const wi = Math.sin(ang);
+        for (let i = 0; i < n; i += tam) {
+          let cr = 1;
+          let ci = 0;
+          for (let k = 0; k < tam / 2; k++) {
+            const a = i + k;
+            const b = a + tam / 2;
+            const tr = re[b] * cr - im[b] * ci;
+            const ti = re[b] * ci + im[b] * cr;
+            re[b] = re[a] - tr;
+            im[b] = im[a] - ti;
+            re[a] += tr;
+            im[a] += ti;
+            const ncr = cr * wr - ci * wi;
+            ci = cr * wi + ci * wr;
+            cr = ncr;
+          }
+        }
+      }
+    }
+
+    const N_FFT = 2048;
+    const janelaHann = Float32Array.from({ length: N_FFT }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N_FFT - 1)));
+    // Espectro de potência de um trecho (média de L e R) a partir da amostra i0
+    function espectro(canais, i0) {
+      const re = new Float64Array(N_FFT);
+      const im = new Float64Array(N_FFT);
+      for (let k = 0; k < N_FFT; k++) {
+        let v = 0;
+        for (const d of canais) v += d[i0 + k] || 0;
+        re[k] = (v / canais.length) * janelaHann[k];
+      }
+      fft(re, im);
+      const p = new Float64Array(N_FFT / 2);
+      for (let k = 0; k < N_FFT / 2; k++) p[k] = re[k] * re[k] + im[k] * im[k];
+      return p;
+    }
+
+    function analisar(buffer, { inicio = 0, janela = null } = {}) {
+      const sr = buffer.sampleRate;
+      const canais = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+      const n = canais[0].length;
+      let pico = 0;
+      let estouros = 0;
+      let picoEm = 0;
+      for (const d of canais) {
+        for (let i = 0; i < n; i++) {
+          const a = Math.abs(d[i]);
+          if (a > pico) { pico = a; picoEm = i / sr; }
+          if (a > 0.95) estouros++;
+        }
+      }
+      // RMS em janelas de 10 ms
+      const J = Math.round(sr * 0.01);
+      const jan = [];
+      for (let i = 0; i + J <= n; i += J) {
+        let s = 0;
+        for (const d of canais) for (let k = i; k < i + J; k++) s += d[k] * d[k];
+        jan.push(Math.sqrt(s / (J * canais.length)));
+      }
+      const maxJ = Math.max(...jan);
+      const trecho = (db) => {
+        const lim = maxJ * 10 ** (db / 20);
+        let a = -1;
+        let b = -1;
+        jan.forEach((v, i) => { if (v >= lim) { if (a < 0) a = i; b = i; } });
+        return a < 0 ? null : { de: a * 0.01, ate: (b + 1) * 0.01 };
+      };
+      const u40 = trecho(-40);
+      const u30 = trecho(-30);
+      const u20 = trecho(-20);
+      const regiao = janela || (u40 ? [u40.de, u40.ate] : [0, n / sr]);
+      // RMS na região útil
+      let s = 0;
+      let cont = 0;
+      const ia = Math.floor(regiao[0] * sr);
+      const ib = Math.min(n, Math.floor(regiao[1] * sr));
+      for (const d of canais) for (let i = ia; i < ib; i++) { s += d[i] * d[i]; cont++; }
+      const rms = Math.sqrt(s / Math.max(1, cont));
+      // Variação do volume em janelas de 0,5 s (ondas da torcida)
+      const meio = [];
+      for (let i = ia; i + sr * 0.5 <= ib; i += sr * 0.5) {
+        let q = 0;
+        for (const d of canais) for (let k = i; k < i + sr * 0.5; k++) q += d[k] * d[k];
+        meio.push(10 * Math.log10(q / (sr * 0.5 * canais.length) + 1e-12));
+      }
+      const variacaoDb = meio.length > 1 ? Math.max(...meio) - Math.min(...meio) : 0;
+      // Espectro médio da região útil
+      const media = new Float64Array(N_FFT / 2);
+      let quadros = 0;
+      for (let i = ia; i + N_FFT <= ib; i += N_FFT / 2) {
+        const p = espectro(canais, i);
+        for (let k = 0; k < p.length; k++) media[k] += p[k];
+        quadros++;
+      }
+      if (!quadros && ia + N_FFT <= n) { media.set(espectro(canais, ia)); quadros = 1; }
+      const hz = (k) => (k * sr) / N_FFT;
+      const faixas = { ate150: 0, de150a300: 0, de300a1k: 0, de1ka4k: 0, acima4k: 0 };
+      let total = 0;
+      let centro = 0;
+      for (let k = 1; k < media.length; k++) {
+        const f = hz(k);
+        const e = media[k];
+        total += e;
+        centro += e * f;
+        if (f < 150) faixas.ate150 += e;
+        else if (f < 300) faixas.de150a300 += e;
+        else if (f < 1000) faixas.de300a1k += e;
+        else if (f < 4000) faixas.de1ka4k += e;
+        else faixas.acima4k += e;
+      }
+      for (const k in faixas) faixas[k] = total ? faixas[k] / total : 0;
+      // Picos do espectro (suavizado em 1/6 de oitava), para ver formantes e parciais
+      const db = Array.from(media, (e) => 10 * Math.log10(e / (total || 1) + 1e-15));
+      const suave = db.map((_, k) => {
+        if (k < 2) return -200;
+        const largura = Math.max(1, Math.round(k * 0.06));
+        let soma = 0;
+        let c = 0;
+        for (let j = Math.max(1, k - largura); j <= Math.min(db.length - 1, k + largura); j++) { soma += db[j]; c++; }
+        return soma / c;
+      });
+      const picos = [];
+      for (let k = 3; k < suave.length - 3; k++) {
+        if (hz(k) < 60 || hz(k) > 12000) continue;
+        if (suave[k] > suave[k - 1] && suave[k] >= suave[k + 1] && suave[k] > suave[k - 3] + 0.3 && suave[k] > suave[k + 3] + 0.3) picos.push([hz(k), suave[k]]);
+      }
+      picos.sort((a, b) => b[1] - a[1]);
+      // Volume que sobra num alto-falante de celular (quase nada abaixo de 300 Hz)
+      const celular = 1 - faixas.ate150 - faixas.de150a300;
+      return {
+        pico, picoEm, estouros, rms,
+        rmsDb: 20 * Math.log10(rms + 1e-12),
+        celularDb: 10 * Math.log10(rms * rms * celular + 1e-12),
+        inicio: u40 ? u40.de - inicio : null,
+        duracao40: u40 ? u40.ate - u40.de : 0,
+        duracao30: u30 ? u30.ate - u30.de : 0,
+        duracao20: u20 ? u20.ate - u20.de : 0,
+        variacaoDb, faixas,
+        centroide: total ? centro / total : 0,
+        picosHz: picos.slice(0, 4).map(([f]) => Math.round(f)).sort((a, b) => a - b),
+      };
+    }
+
+    // ---------- Gráficos (forma de onda + espectrograma) ----------
+    function desenhar(titulo, buffer) {
+      const L = 640;
+      const sr = buffer.sampleRate;
+      const canais = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+      const n = canais[0].length;
+      const div = document.createElement('div');
+      div.className = 'grafico';
+      div.innerHTML = `<b>${titulo}</b>`;
+      const onda = document.createElement('canvas');
+      onda.width = L;
+      onda.height = 60;
+      const g = onda.getContext('2d');
+      g.fillStyle = '#111';
+      g.fillRect(0, 0, L, 60);
+      g.strokeStyle = '#f87171';
+      g.beginPath();
+      g.moveTo(0, 30 - 0.95 * 30); g.lineTo(L, 30 - 0.95 * 30);
+      g.moveTo(0, 30 + 0.95 * 30); g.lineTo(L, 30 + 0.95 * 30);
+      g.stroke();
+      g.fillStyle = '#7dd3fc';
+      for (let x = 0; x < L; x++) {
+        let mn = 0;
+        let mx = 0;
+        const a = Math.floor((x / L) * n);
+        const b = Math.floor(((x + 1) / L) * n);
+        for (let i = a; i < b; i++) { const v = canais[0][i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+        g.fillRect(x, 30 - mx * 30, 1, Math.max(1, (mx - mn) * 30));
+      }
+      const esp = document.createElement('canvas');
+      const A = 140;
+      esp.width = L;
+      esp.height = A;
+      const e = esp.getContext('2d');
+      const img = e.createImageData(L, A);
+      const fMin = 40;
+      const fMax = 16000;
+      // Duas passadas: calcula tudo, depois pinta com 75 dB de faixa abaixo do ponto mais forte
+      const valores = new Float32Array(L * A);
+      let maximo = -Infinity;
+      for (let x = 0; x < L; x++) {
+        const i0 = Math.floor((x / L) * (n - N_FFT));
+        const p = espectro(canais, Math.max(0, i0));
+        for (let y = 0; y < A; y++) {
+          const f = fMin * Math.pow(fMax / fMin, 1 - y / (A - 1));
+          const k = Math.min(p.length - 1, Math.round((f * N_FFT) / sr));
+          const valor = 10 * Math.log10(p[k] + 1e-14);
+          valores[y * L + x] = valor;
+          if (valor > maximo) maximo = valor;
+        }
+      }
+      for (let i = 0; i < valores.length; i++) {
+        const u = Math.max(0, Math.min(1, (valores[i] - maximo + 75) / 75));
+        const o = i * 4;
+        img.data[o] = 255 * Math.min(1, u * 1.6);
+        img.data[o + 1] = 255 * Math.max(0, Math.min(1, u * 1.8 - 0.7));
+        img.data[o + 2] = 255 * Math.max(0, u * 2.5 - 1.9) + 50 * u;
+        img.data[o + 3] = 255;
+      }
+      e.putImageData(img, 0, 0);
+      // Marcas de frequência
+      e.fillStyle = '#fff8';
+      e.font = '10px monospace';
+      for (const f of [100, 300, 1000, 3000, 10000]) {
+        const y = (1 - Math.log(f / fMin) / Math.log(fMax / fMin)) * (A - 1);
+        e.fillRect(0, y, 6, 1);
+        e.fillText(f >= 1000 ? `${f / 1000}k` : String(f), 8, y + 3);
+      }
+      div.append(onda, esp);
+      $('graficos').appendChild(div);
+    }
+
+    // ---------- Casos ----------
+    const T0 = 0.05; // os sons começam aqui (o começo do arquivo fica em silêncio)
+    const CASOS = [
+      { id: 'chute-fraco', nome: 'Chute fraco (0,2)', dur: 1.2, tocar: (m) => m.chute(0.2, T0), duracao: [0.08, 1], corpo: [0.02, 0.2], celular: -36 },
+      { id: 'chute-medio', nome: 'Chute médio (0,6)', dur: 1.2, tocar: (m) => m.chute(0.6, T0), duracao: [0.08, 1], corpo: [0.02, 0.2], celular: -33 },
+      { id: 'chute-forte', nome: 'Chute forte (1)', dur: 1.2, tocar: (m) => m.chute(1, T0), duracao: [0.08, 1], corpo: [0.02, 0.25], celular: -31 },
+      { id: 'quique', nome: 'Quique (0,6)', dur: 1, tocar: (m) => m.quique(0.6, T0), duracao: [0.04, 0.8], corpo: [0.01, 0.15], celular: -42 },
+      { id: 'trave', nome: 'Trave', dur: 3, tocar: (m) => m.trave(undefined, T0), duracao: [0.6, 2.6], corpo: [0.05, 1.2], celular: -28 },
+      { id: 'rede', nome: 'Rede', dur: 2, tocar: (m) => m.rede(undefined, T0), duracao: [0.35, 1.5], corpo: [0.1, 0.6], celular: -26 },
+      { id: 'barreira', nome: 'Barreira', dur: 1.2, tocar: (m) => m.barreira(undefined, T0), duracao: [0.08, 1], corpo: [0.02, 0.25], celular: -33 },
+      { id: 'defesa-fraca', nome: 'Defesa fraca (0,2)', dur: 1.2, tocar: (m) => m.defesa(0.2, T0), duracao: [0.06, 1], corpo: [0.01, 0.15], celular: -40 },
+      { id: 'defesa-forte', nome: 'Defesa forte (1)', dur: 1.2, tocar: (m) => m.defesa(1, T0), duracao: [0.06, 1], corpo: [0.01, 0.2], celular: -32 },
+      { id: 'apito', nome: 'Apito curto', dur: 1.6, tocar: (m) => m.apito('curto', T0), duracao: [0.2, 1.2] },
+      { id: 'apito-fim', nome: 'Apito final', dur: 3, tocar: (m) => m.apito('fim', T0), duracao: [1.6, 2.8] },
+      { id: 'tensao', nome: 'Tensão (0,9 s)', dur: 6, tocar: (m) => m.torcidaTensao(0.9, T0), duracao: [2.5, 5.5] },
+      { id: 'gol', nome: 'Torcida: gol', dur: 6, tocar: (m) => m.torcidaGol(T0), duracao: [3, 5.2], duracao30: [2.6, 4.5] },
+      { id: 'uhh', nome: 'Torcida: uuuh', dur: 4, tocar: (m) => m.torcidaUhh(T0), duracao: [1.2, 3.4] },
+      {
+        id: 'ambiente-045', nome: 'Ambiente 0,45', dur: 16, janela: [3, 16], continuo: true,
+        tocar: (m) => { m.torcidaAmbiente(0.45, T0); m.agendarAte(16); },
+      },
+      {
+        id: 'ambiente-1', nome: 'Ambiente 1', dur: 16, janela: [3, 16], continuo: true,
+        tocar: (m) => { m.torcidaAmbiente(1, T0); m.agendarAte(16); },
+      },
+      {
+        id: 'mistura', nome: 'Tudo junto (pior caso)', dur: 7, duracao: [3, 7],
+        tocar: (m) => {
+          m.torcidaAmbiente(1, 0);
+          m.agendarAte(7);
+          m.apito('curto', 0.1);
+          m.torcidaTensao(0.9, 0.5);
+          m.chute(1, 1.4);
+          m.chute(1, 1.42);
+          m.trave(1, 2.0);
+          m.defesa(1, 2.02);
+          m.barreira(1, 2.03);
+          m.rede(1, 2.05);
+          m.torcidaGol(2.05);
+          m.torcidaUhh(2.1);
+          m.apito('fim', 2.2);
+        },
+      },
+    ];
+
+    function fmt(v, casas = 3) {
+      return v === null || v === undefined ? '—' : Number(v).toFixed(casas);
+    }
+
+    // cru: sem compressor nem limitador (mostra o quanto cada som empurra o limitador)
+    async function renderizar(caso, semente0, cru = false) {
+      const ctx = new OfflineAudioContext(2, Math.round(TAXA * caso.dur), TAXA);
+      const m = montarMotor(ctx, { aleatorio: semente(semente0), cru });
+      caso.tocar(m);
+      return ctx.startRendering();
+    }
+
+    async function verificar() {
+      $('rodar').disabled = true;
+      $('resumo').textContent = 'renderizando…';
+      $('graficos').innerHTML = '';
+      const resultados = [];
+      const falhas = [];
+      for (const caso of CASOS) {
+        const buffer = await renderizar(caso, 7);
+        const r = analisar(buffer, { inicio: T0, janela: caso.janela });
+        r.picoCru = analisar(await renderizar(caso, 7, true)).pico;
+        const problemas = [];
+        if (r.pico > 0.95) problemas.push(`pico ${fmt(r.pico)} > 0,95`);
+        if (r.estouros) problemas.push(`${r.estouros} amostras acima de 0,95`);
+        if (r.pico < 0.05) problemas.push(`mudo demais (pico ${fmt(r.pico)})`);
+        if (caso.duracao && (r.duracao40 < caso.duracao[0] || r.duracao40 > caso.duracao[1])) {
+          problemas.push(`duração ${fmt(r.duracao40, 2)} s fora de ${caso.duracao.join('–')} s`);
+        }
+        if (caso.corpo && (r.duracao20 < caso.corpo[0] || r.duracao20 > caso.corpo[1])) {
+          problemas.push(`corpo (−20 dB) ${fmt(r.duracao20, 2)} s fora de ${caso.corpo.join('–')} s`);
+        }
+        if (caso.duracao30 && (r.duracao30 < caso.duracao30[0] || r.duracao30 > caso.duracao30[1])) {
+          problemas.push(`duração (−30 dB) ${fmt(r.duracao30, 2)} s fora de ${caso.duracao30.join('–')} s`);
+        }
+        if (caso.continuo && r.variacaoDb < 3) problemas.push(`torcida sem ondas (variação ${fmt(r.variacaoDb, 1)} dB)`);
+        if (caso.celular && r.celularDb < caso.celular) problemas.push(`fraco no celular (${fmt(r.celularDb, 1)} dB < ${caso.celular})`);
+        resultados.push({ id: caso.id, nome: caso.nome, ...r, problemas });
+        if (problemas.length) falhas.push(`${caso.nome}: ${problemas.join('; ')}`);
+        desenhar(`${caso.nome} — pico ${fmt(r.pico)} · RMS ${fmt(r.rmsDb, 1)} dB · ${fmt(r.duracao40, 2)} s`, buffer);
+      }
+
+      // Repetibilidade: outra semente não pode mudar muito o pico do chute forte
+      const variacoes = [];
+      for (const s of [1, 2, 3, 4, 5]) {
+        const b = await renderizar(CASOS.find((c) => c.id === 'chute-forte'), s);
+        variacoes.push(analisar(b).pico);
+      }
+
+      // Ambiente: nível 1 precisa ser mais alto que 0,45
+      const a045 = resultados.find((r) => r.id === 'ambiente-045');
+      const a1 = resultados.find((r) => r.id === 'ambiente-1');
+      if (!(a1.rms > a045.rms * 1.5)) falhas.push('Ambiente 1 não ficou bem mais alto que 0,45');
+      // Chute forte mais forte e mais grave que o fraco
+      const cf = resultados.find((r) => r.id === 'chute-fraco');
+      const cF = resultados.find((r) => r.id === 'chute-forte');
+      if (!(cF.rms > cf.rms * 1.4)) falhas.push('Chute forte não ficou bem mais forte que o fraco');
+      if (!(cF.centroide < cf.centroide * 1.15)) falhas.push('Chute forte não ficou mais grave');
+
+      // ----- O invólucro criarAudio -----
+      const extras = {};
+      // 1) Sem WebAudio: tudo vira função vazia, sem erro
+      {
+        const salvo = [window.AudioContext, window.webkitAudioContext];
+        let erro = null;
+        let a = null;
+        try {
+          window.AudioContext = undefined;
+          window.webkitAudioContext = undefined;
+          a = criarAudio({});
+          a.iniciar();
+          a.torcidaAmbiente(0.5);
+          a.chute(1); a.quique(1); a.trave(); a.rede(); a.barreira(); a.defesa(0.5); a.apito();
+          a.torcidaTensao(); a.torcidaGol(); a.torcidaUhh(); a.atualizar(0.016);
+          const antes = a.mudo;
+          a.mudo = !antes;
+          a.mudo = antes;
+        } catch (e) {
+          erro = String(e);
+        } finally {
+          [window.AudioContext, window.webkitAudioContext] = salvo;
+        }
+        extras.semAudio = { erro, estado: a && a.estado, disponivel: a && a.disponivel };
+        if (erro || !a || a.estado !== 'sem-audio') falhas.push(`Sem WebAudio: ${erro || 'estado ' + (a && a.estado)}`);
+      }
+      // 2) Mudo: salvo no aparelho e silêncio total
+      {
+        let guardado = null;
+        try { guardado = localStorage.getItem('fkl-mudo'); } catch {}
+        // a) Já abre mudo (lido do aparelho): nada soa
+        const ctx = new OfflineAudioContext(2, TAXA, TAXA);
+        const a = criarAudio(null, { contexto: ctx, aleatorio: semente(3) });
+        a.mudo = true;
+        let salvoSim = null;
+        try { salvoSim = localStorage.getItem('fkl-mudo'); } catch {}
+        const aRelido = criarAudio(null, { contexto: new OfflineAudioContext(2, 128, TAXA) });
+        const relido = aRelido.mudo;
+        a.torcidaAmbiente(1);
+        a.iniciar();
+        a.chute(1); a.torcidaGol(); a.apito();
+        const r = analisar(await ctx.startRendering());
+        // b) Sem mudo toca; ligando o mudo no meio (0,5 s), depois de 0,7 s é silêncio
+        const ctx2 = new OfflineAudioContext(2, TAXA * 1.5, TAXA);
+        const a2 = criarAudio(null, { contexto: ctx2, aleatorio: semente(3) });
+        a2.mudo = false;
+        a2.iniciar();
+        a2.torcidaAmbiente(1);
+        a2.torcidaGol();
+        a2.chute(1);
+        ctx2.suspend(0.5).then(() => {
+          a2.mudo = true;
+          a2.chute(1); // mudo: não pode tocar
+          ctx2.resume();
+        });
+        const b2 = await ctx2.startRendering();
+        let picoDepois = 0;
+        for (let c = 0; c < 2; c++) {
+          const d = b2.getChannelData(c);
+          for (let i = Math.round(TAXA * 0.7); i < d.length; i++) picoDepois = Math.max(picoDepois, Math.abs(d[i]));
+        }
+        const r2 = analisar(b2);
+        let salvoNao = null;
+        a2.mudo = false;
+        try { salvoNao = localStorage.getItem('fkl-mudo'); } catch {}
+        try {
+          if (guardado === null) localStorage.removeItem('fkl-mudo');
+          else localStorage.setItem('fkl-mudo', guardado);
+        } catch {}
+        extras.mudo = { picoAbrindoMudo: r.pico, salvoSim, relido, picoAntes: r2.pico, picoDepoisDeMutar: picoDepois, salvoNao };
+        if (r.pico > 1e-6) falhas.push(`Mudo ainda soa (pico ${r.pico})`);
+        if (picoDepois > 1e-3) falhas.push(`Ligar o mudo no meio não silenciou (pico ${picoDepois})`);
+        if (salvoSim !== '1' || salvoNao !== '0' || relido !== true) falhas.push('Mudo não ficou salvo no aparelho');
+        if (r2.pico < 0.1) falhas.push('Invólucro sem mudo não tocou');
+      }
+      // 3) Custo: montar o motor e renderizar 20 s de jogo (torcida + 6 cobranças)
+      {
+        const segundos = 20;
+        const t0 = performance.now();
+        const ctx = new OfflineAudioContext(2, TAXA * segundos, TAXA);
+        const m = montarMotor(ctx, { aleatorio: semente(9) });
+        const montar = performance.now() - t0;
+        m.torcidaAmbiente(0.6, 0);
+        m.agendarAte(segundos);
+        for (let k = 0; k < 6; k++) {
+          const t = 0.3 + k * 3.2;
+          m.apito('curto', t);
+          m.torcidaTensao(0.9, t + 0.6);
+          m.chute(0.5 + 0.1 * k, t + 1.45);
+          if (k % 3 === 0) { m.rede(0.8, t + 2.3); m.torcidaGol(t + 2.32); }
+          else if (k % 3 === 1) { m.trave(0.9, t + 2.3); m.torcidaUhh(t + 2.35); m.quique(0.5, t + 2.8); }
+          else { m.barreira(0.8, t + 1.8); m.quique(0.4, t + 2.3); }
+        }
+        const t1 = performance.now();
+        const b = await ctx.startRendering();
+        const render = performance.now() - t1;
+        const r = analisar(b, { janela: [0, segundos] });
+        extras.custo = { montarMs: montar, renderMs: render, vezesTempoReal: (segundos * 1000) / render, pico: r.pico, estouros: r.estouros };
+        if (r.pico > 0.95 || r.estouros) falhas.push(`Sequência de 20 s estourou (pico ${r.pico})`);
+        desenhar(`20 s de jogo (torcida 0,6 + 6 cobranças) — pico ${fmt(r.pico)}`, b);
+      }
+
+      // ----- Tabela -----
+      const colunas = ['som', 'pico', 'pico cru', 'RMS dB', 'celular dB', 'útil −40 dB (s)', 'útil −30 dB (s)', 'corpo −20 dB (s)', 'início (s)', 'pico em (s)', 'ondas dB',
+        '<150', '150–300', '300–1k', '1k–4k', '>4k', 'centróide Hz', 'picos Hz', ''];
+      $('tabela').innerHTML = `<tr>${colunas.map((c) => `<th>${c}</th>`).join('')}</tr>` + resultados.map((r) => `<tr>
+        <td>${r.nome}</td><td>${fmt(r.pico)}</td><td>${fmt(r.picoCru, 2)}</td><td>${fmt(r.rmsDb, 1)}</td><td>${fmt(r.celularDb, 1)}</td><td>${fmt(r.duracao40, 2)}</td><td>${fmt(r.duracao30, 2)}</td><td>${fmt(r.duracao20, 2)}</td>
+        <td>${fmt(r.inicio, 3)}</td><td>${fmt(r.picoEm, 3)}</td><td>${fmt(r.variacaoDb, 1)}</td>
+        ${Object.values(r.faixas).map((v) => `<td>${Math.round(v * 100)}%</td>`).join('')}
+        <td>${Math.round(r.centroide)}</td><td>${r.picosHz.join(' ')}</td>
+        <td class="${r.problemas.length ? 'falha' : 'ok'}">${r.problemas.length ? 'FALHA' : 'ok'}</td></tr>`).join('');
+
+      const linhas = [
+        falhas.length ? `FALHAS (${falhas.length}):\n  ${falhas.join('\n  ')}` : 'Tudo ok: nenhum som estoura (pico ≤ 0,95), nenhum mudo, durações coerentes.',
+        `Chute forte com 5 sementes: picos ${variacoes.map((v) => fmt(v)).join(' ')}`,
+        `Sem WebAudio: ${JSON.stringify(extras.semAudio)}`,
+        `Mudo: ${JSON.stringify(extras.mudo)}`,
+        `Custo: montar ${fmt(extras.custo.montarMs, 1)} ms · 20 s renderizados em ${fmt(extras.custo.renderMs, 0)} ms (${fmt(extras.custo.vezesTempoReal, 1)}× o tempo real)`,
+      ];
+      $('resumo').textContent = linhas.join('\n');
+      window.resultadosAudio = { resultados, falhas, variacoes, extras };
+      window.verificacaoPronta = true;
+      $('rodar').disabled = false;
+    }
+
+    $('rodar').addEventListener('click', () => verificar());
+    if (new URLSearchParams(location.search).has('auto')) verificar();
+  </script>
+</body>
+</html>

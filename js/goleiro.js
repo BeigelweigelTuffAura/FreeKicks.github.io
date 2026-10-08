@@ -15,7 +15,7 @@ export const PADRAO_GOLEIRO = {
   atrasoBarreira: 0.12,     // s a mais quando a bola passa por cima da barreira (visão tapada)
   erroLeitura: 0.5,         // m: erro típico (desvio padrão) ao prever onde a bola vai chegar
   distanciaLeitura: 15,     // m: com a bola a essa distância o erro é o erroLeitura cheio; mais perto, lê melhor
-  pesoCurva: 1.5,           // erro a mais por metro de curva que a bola ainda vai fazer
+  pesoCurva: 2.5,           // erro a mais por metro de curva que a bola ainda vai fazer (na direção da curva)
   pesoSemRotacao: 1,        // erro a mais na bola sem rotação (vezes a intensidade da dança)
   intervaloLeitura: 0.12,   // s entre uma releitura e outra, enquanto ainda não mergulhou
   velocidadeLateral: 2.5,   // m/s nos passos para o lado
@@ -112,7 +112,6 @@ export function criarGoleiro(posBola, barreira, cfg = {}) {
     progresso: 0,
     estado: 'pronto',
     barreira: barreira || null,
-    bolaOrigem: { x: bx, z: bz },
     relogio: 0,               // relógio interno (balanço antes do chute)
     tempo: 0,                 // segundos desde o chute
     analisado: false,         // já viu se a bola passa pela barreira
@@ -126,9 +125,9 @@ export function criarGoleiro(posBola, barreira, cfg = {}) {
     esperandoReleitura: false,
     mergulho: null,
     segurando: false,
-    velCorpo: { x: 0, y: 0 },
-    maos: null,
-    ultimoContato: -Infinity,
+    velCorpo: { x: 0, y: 0 },  // velocidade do centro do corpo (a mão que vem no mergulho empurra a bola)
+    maos: null,               // [mão direita, mão esquerda] do goleiro
+    ultimoContato: -Infinity, // instante do último toque na bola
     _anterior: null,
     _bola: null,
   };
@@ -209,18 +208,22 @@ function lerBola(g, bola, c, fis) {
     return;
   }
   const reta = preverCruzamento(bola, g.z, fis, true);
-  const curva = reta ? Math.hypot(real.x - reta.x, real.y - reta.y) : 0;
+  // Curva que a bola ainda vai fazer, separada em lateral e vertical: o erro cresce na direção dela
+  const curvaX = reta ? Math.min(Math.abs(real.x - reta.x), 3) : 0;
+  const curvaY = reta ? Math.min(Math.abs(real.y - reta.y), 3) : 0;
   const danca = bola.danca ? bola.danca.intensidade || 0 : 0;
   const falta = Math.hypot(real.x - bola.pos.x, real.y - bola.pos.y, g.z - bola.pos.z);
   const perto = limitar(falta / Math.max(0.5, c.distanciaLeitura), 0.2, 1.6);
-  const sigma = c.erroLeitura * (1 + c.pesoCurva * Math.min(curva, 3) + c.pesoSemRotacao * danca) * perto;
+  const base = c.erroLeitura * perto;
+  const sigmaX = base * (1 + c.pesoCurva * curvaX + c.pesoSemRotacao * danca);
+  const sigmaY = base * (1 + c.pesoCurva * curvaY + c.pesoSemRotacao * danca);
   g.leitura = {
-    x: real.x + g.erro.x * sigma,
-    y: Math.max(0.12, real.y + g.erro.y * sigma),
+    x: real.x + g.erro.x * sigmaX,
+    y: Math.max(0.12, real.y + g.erro.y * sigmaY),
     t: g.tempo + real.t,
     real: { x: real.x, y: real.y },
-    sigma,
-    curva,
+    sigma: Math.hypot(sigmaX, sigmaY) / Math.SQRT2,
+    curva: Math.hypot(curvaX, curvaY),
   };
 }
 
@@ -274,9 +277,10 @@ function planejar(g, alvo, c, meiaAltura) {
     const piso = centroMinimo(rolagemPara(D0, Math.abs(Cf.x - C0.x)));
     if (Cf.y > topo) {
       // Bola alta: sobe o que dá e chega mais perto de lado para as mãos ainda alcançarem
+      // (bola alta demais: os braços vão inclinados mesmo assim, o corpo tomba para o lado dela)
       Cf.y = topo;
       const falta = T.y - topo;
-      const lateral = falta < estica ? Math.sqrt(estica * estica - falta * falta) : 0;
+      const lateral = Math.max(falta < estica ? Math.sqrt(estica * estica - falta * falta) : 0, estica * 0.5);
       Cf.x = Math.abs(dx) > lateral ? T.x - Math.sign(dx) * lateral : C0.x;
     } else if (Cf.y < piso) {
       Cf.y = piso;
@@ -329,10 +333,11 @@ function comecarMergulho(g, plano, t) {
 
 // ---------- Atualização ----------
 
-// Chamar a cada quadro (ou a cada passo da física).
+// Chamar a cada quadro (ou a cada passo da física). Devolve g.pose.
 //   opcoes.chutou: a bola já foi chutada. opcoes.tempoDesdeChute: segundos desde o chute.
 //   opcoes.cfgFisica: config da física para simular a bola (padrão: cfg).
 //   opcoes.aleatorio: função de 0 a 1 para o erro de leitura (padrão: Math.random).
+// Crie um goleiro novo (criarGoleiro) a cada cobrança.
 export function atualizarGoleiro(g, bola, dt, cfg = {}, opcoes = {}) {
   const c = lerCfg(cfg);
   const fis = opcoes.cfgFisica || cfg;
@@ -530,7 +535,7 @@ function calcularMaos(g, c) {
   const H = { x: C.x - U.x * CENTRO, y: C.y - U.y * CENTRO, z: C.z - U.z * CENTRO };
   const pronto = [-1, 1].map((s) => ({
     x: H.x + U.x * 0.38 + L.x * 0.3 * s + F.x * 0.22,
-    y: H.y + U.y * 0.38 + 0.0,
+    y: H.y + U.y * 0.38,
     z: H.z + U.z * 0.38 + L.z * 0.3 * s + F.z * 0.22,
   }));
   const m = g.mergulho;

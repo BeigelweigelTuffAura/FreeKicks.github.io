@@ -10,7 +10,7 @@ export const CONFIG = {
   magnus: 0.005,          // quanto o giro desvia a bola (efeito Magnus)
   decaimentoGiro: 0.15,   // quanto o giro perde por segundo (0.15 = 15%)
   raioBola: 0.11,         // m
-  magnusLimite: 0.5,      // giro alto demais para a velocidade não curva mais (limite do efeito Magnus)
+  magnusLimite: 0.5,      // limite do efeito Magnus: com giro × raio acima de metade da velocidade, girar mais não curva mais
   quiqueChao: 0.65,       // quanto a bola volta numa batida lenta no gramado (0 = nada, 1 = tudo)
   quiqueChaoForte: 0.45,  // quanto volta numa batida forte (a grama amassa e segura mais)
   quiqueChaoVelocidade: 12, // m/s: batida a partir da qual vale o quiqueChaoForte
@@ -34,7 +34,7 @@ export const CONFIG = {
   giroVerticalMax: 55,    // giro para a frente com o pé em cima (cai: folha seca; rasteiro)
   giroEmbaixoMax: 18,     // giro para trás com o pé embaixo (flutua)
   perdaVelocidadeContato: 0.15, // quanto de velocidade se perde batendo na borda da bola
-  quedaTardia: 6,         // quanto a queda (giro para a frente) cresce quando a bola perde velocidade
+  quedaTardia: 6,         // quanto a queda (giro para a frente) e a flutuação (para trás) crescem quando a bola perde velocidade
   quedaTardiaInicio: 0.25, // queda logo depois do chute (fração do efeito normal): sobe e depois despenca
   efeitoTardioMax: 1.8,   // limite do crescimento dos efeitos tardios (queda e trivela)
 

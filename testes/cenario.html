@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Teste do cenário</title>
+  <!-- Mesmo import map do jogo: Three.js em versão fixa -->
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: system-ui, sans-serif; }
+    #tela canvas { display: block; touch-action: none; }
+    #botoes { position: fixed; left: 8px; top: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+    #botoes button {
+      font: 600 13px system-ui, sans-serif; color: #fff; background: rgba(0, 0, 0, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 8px; padding: 7px 10px;
+    }
+    #botoes button.ativo { background: #f7d84a; color: #111; }
+    #info { position: fixed; left: 8px; bottom: 8px; color: #fff; font: 12px ui-monospace, monospace; background: rgba(0, 0, 0, 0.55); padding: 4px 8px; border-radius: 6px; }
+    .sem-ui #botoes, .sem-ui #info { display: none; }
+  </style>
+</head>
+<body>
+  <div id="tela"></div>
+  <div id="botoes">
+    <button data-camera="a" type="button">Atrás da bola</button>
+    <button data-camera="b" type="button">Aérea diagonal</button>
+    <button data-camera="c" type="button">Aérea do jogo</button>
+    <button data-camera="d" type="button">Volta no estádio</button>
+    <button data-camera="e" type="button">Visão geral</button>
+    <button id="gol" type="button">GOL!</button>
+    <button id="trave" type="button">Uuuh (trave)</button>
+    <button id="bonecos" type="button">Bonecos</button>
+  </div>
+  <div id="info"></div>
+
+  <script type="module">
+    // Página de teste do cenário (js/estadio.js) com câmeras fixas, para olhar e comparar capturas.
+    // Endereço: testes/cenario.html?cam=a (a, b, c, d ou e) · &ui=0 esconde os botões · &teste: cada quadro vale 1/60 s
+    // · &gol=1 já começa comemorando (com a rede estufando) · &bonecos=0 tira os bonecos de referência
+    import * as THREE from 'three';
+    import { CONFIG } from '../js/config.js';
+    import { criarCenario } from '../js/estadio.js';
+
+    const GRAUS = Math.PI / 180;
+    const parametros = new URLSearchParams(location.search);
+    if (parametros.get('ui') === '0') document.body.classList.add('sem-ui');
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.getElementById('tela').appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 300);
+
+    const inicioCriacao = performance.now();
+    const cenario = criarCenario(scene, renderer, CONFIG);
+    const tempoCriacao = performance.now() - inicioCriacao;
+
+    // Bola na marca da falta (22 m) e, para comparar o contraste, bonecos simples: goleiro e barreira
+    const BOLA = new THREE.Vector3(0, CONFIG.raioBola, 22);
+    const bola = new THREE.Mesh(new THREE.SphereGeometry(CONFIG.raioBola, 24, 12), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    bola.position.copy(BOLA);
+    scene.add(bola);
+    const sombra = new THREE.Mesh(new THREE.CircleGeometry(0.22, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
+    sombra.rotation.x = -Math.PI / 2;
+    sombra.position.set(BOLA.x, 0.01, BOLA.z);
+    scene.add(sombra);
+    const bonecos = new THREE.Group();
+    const boneco = (x, z, cor, altura = 1.85) => {
+      const corpo = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, altura - 0.7, 4, 10), new THREE.MeshLambertMaterial({ color: cor }));
+      corpo.position.set(x, (altura - 0.25) / 2 + 0.05, z);
+      const cabeca = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshLambertMaterial({ color: 0xd9a77f }));
+      cabeca.position.set(x, altura - 0.12, z);
+      bonecos.add(corpo, cabeca);
+    };
+    boneco(0.4, 0.4, 0x2fbf5a);
+    for (let i = 0; i < 4; i++) boneco(-1.6 + i * 0.55, 22 - 9.15, 0x2456c8);
+    scene.add(bonecos);
+    if (parametros.get('bonecos') === '0') bonecos.visible = false;
+
+    // Câmeras fixas
+    const CAMERAS = {
+      a: { pos: [0, 2.2, 28], olhar: [0, 2.2 - 28 * Math.tan(10 * GRAUS), 0] }, // a do jogo antes do chute
+      b: { pos: [13, 13, 24], olhar: [0, 1, 8] },                                 // aérea na diagonal
+      c: { pos: [2, 13, 29], olhar: [0, 0.55, 11] },                              // a aérea do jogo logo depois do chute
+      e: { pos: [-18, 34, 92], olhar: [0, 6, 0] },                                // visão geral (céu, cobertura e torres)
+    };
+    let cameraAtual = parametros.get('cam') || 'a';
+    let anguloVolta = 0;
+
+    function ajustarTela() {
+      const largura = window.innerWidth;
+      const altura = window.innerHeight;
+      renderer.setSize(largura, altura);
+      camera.aspect = largura / altura;
+      // Mesmo cálculo do jogo: no celular em pé, abre o campo de visão para o gol caber
+      const fovParaLargura = 2 * Math.atan(Math.tan((CONFIG.camera.larguraVisivel * GRAUS) / 2) / camera.aspect) / GRAUS;
+      camera.fov = Math.max(CONFIG.camera.fovMin, fovParaLargura);
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', ajustarTela);
+    ajustarTela();
+
+    function posicionarCamera() {
+      if (cameraAtual === 'livre') return;
+      if (cameraAtual === 'd') {
+        const r = 34;
+        camera.position.set(Math.sin(anguloVolta) * r, 9, 14 + Math.cos(anguloVolta) * r);
+        camera.lookAt(0, 2, 8);
+      } else {
+        const c = CAMERAS[cameraAtual];
+        camera.position.set(...c.pos);
+        camera.lookAt(...c.olhar);
+      }
+      for (const b of document.querySelectorAll('[data-camera]')) b.classList.toggle('ativo', b.dataset.camera === cameraAtual);
+    }
+    for (const b of document.querySelectorAll('[data-camera]')) {
+      b.addEventListener('click', () => {
+        cameraAtual = b.dataset.camera;
+        posicionarCamera();
+      });
+    }
+
+    // Gol: a bola "entra" no ângulo e empurra a rede por um instante, e a torcida comemora
+    let empurrando = 0;
+    function gol() {
+      empurrando = 0.25;
+      cenario.torcida.festa(1);
+    }
+    document.getElementById('gol').addEventListener('click', gol);
+    document.getElementById('trave').addEventListener('click', () => cenario.torcida.festa(0.3));
+    document.getElementById('bonecos').addEventListener('click', () => { bonecos.visible = !bonecos.visible; });
+    if (parametros.get('gol') === '1') gol();
+
+    // Avança o cenário em passos de 1/60 s (as capturas automáticas usam para ver a comemoração num instante exato)
+    function avancar(dt) {
+      if (empurrando > 0) {
+        empurrando -= dt;
+        cenario.rede.estufar(2.3, 1.6, 0.55 * Math.min(1, (0.25 - empurrando) / 0.08));
+      }
+      cenario.atualizar(dt);
+      if (cameraAtual === 'd') {
+        anguloVolta += dt * 0.15;
+        posicionarCamera();
+      }
+    }
+    window.avancar = (segundos) => {
+      for (let t = 0; t < segundos - 1e-6; t += 1 / 60) avancar(1 / 60);
+      renderer.render(scene, camera);
+    };
+    window.cenario = cenario;
+    // Câmera livre (para olhar detalhes): posição, ponto para onde olha e, se quiser, o campo de visão
+    window.posicionar = (pos, alvo, fov) => {
+      cameraAtual = 'livre';
+      camera.position.set(...pos);
+      camera.lookAt(...alvo);
+      if (fov) {
+        camera.fov = fov;
+        camera.updateProjectionMatrix();
+      }
+      renderer.render(scene, camera);
+    };
+    window.definirCamera = (nome) => {
+      cameraAtual = nome;
+      posicionarCamera();
+      renderer.render(scene, camera);
+    };
+
+    posicionarCamera();
+    const MODO_TESTE = parametros.has('teste');
+    const relogio = new THREE.Clock();
+    const info = document.getElementById('info');
+    let quadros = 0;
+    let acumulado = 0;
+    window.tempoDeJogo = 0;
+    function quadro() {
+      const dt = MODO_TESTE ? 1 / 60 : Math.min(relogio.getDelta(), 0.05);
+      window.tempoDeJogo += dt;
+      avancar(dt);
+      renderer.render(scene, camera);
+      quadros++;
+      acumulado += MODO_TESTE ? 0 : dt;
+      if (quadros % 30 === 0) {
+        const fps = acumulado > 0 ? Math.round(30 / acumulado) : '-';
+        acumulado = 0;
+        const r = renderer.info.render;
+        info.textContent = `${fps} qps · ${r.calls} chamadas · ${Math.round(r.triangles / 1000)} mil triângulos · montagem ${Math.round(tempoCriacao)} ms`;
+      }
+      requestAnimationFrame(quadro);
+    }
+    requestAnimationFrame(quadro);
+    window.cenarioPronto = true;
+  </script>
+</body>
+</html>
