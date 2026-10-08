@@ -61,8 +61,8 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
       <div class="cartao-linha">
         <span class="cartao-numero">${jogador.numero}</span>
         <div class="cartao-nome">
-          <b>${jogador.apelido}</b>
-          <small>${jogador.estilo}</small>
+          <b>${jogador.nome}</b>
+          <small>${jogador.apelido} · ${jogador.estilo}</small>
         </div>
         <div class="cartao-ovr"><b>${overall(jogador)}</b><small>OVR</small></div>
       </div>
@@ -74,8 +74,8 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
       <button class="item-cobrador${atual && atual.jogador === jogador ? ' escolhido' : ''}" data-indice="${i}" type="button">
         <span class="item-numero">${jogador.numero}</span>
         <span class="item-meio">
-          <b>${jogador.apelido}${i === 0 ? ' <span class="selo sugerido">Sugerido</span>' : ''}</b>
-          <small>${jogador.posicao} · ${jogador.estilo}</small>
+          <b>${jogador.nome}${i === 0 ? ' <span class="selo sugerido">Sugerido</span>' : ''}</b>
+          <small>${jogador.apelido} · ${jogador.posicao} · ${jogador.estilo}</small>
           <span class="item-selos">${selos(jogador)}</span>
           <span class="atributos">${barrasDeAtributos(jogador)}</span>
         </span>

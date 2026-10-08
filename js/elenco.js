@@ -1,5 +1,7 @@
 // Elenco Lendário: notas, pé bom, especialidades e aparência de cada cobrador.
-// No jogo aparecem só o apelido e o número; "referencia" serve para nós sabermos quem é quem.
+// Nomes no estilo do PES antigo: quase o real, com uma letra trocada (nome = na tela, nomeCamisa = nas costas).
+// "apelido" é o tempero que aparece junto; "referencia" é o nome real, só para nós (não aparece no jogo).
+// Antes de publicar em loja, revisar os nomes (veja PROJETO.md, "Decisão pendente: nomes dos jogadores").
 //
 // Atributos (0 a 99):
 //   FOR força · CUR curva · QUE queda (folha seca) · PRE precisão · FRI frieza nos lances decisivos
@@ -31,77 +33,77 @@ const PELE = {
 export const ELENCO = [
   // ---------- Titulares ----------
   {
-    numero: 1, apelido: 'Mito', referencia: 'Rogério Ceni', posicao: 'GOL', pe: 'D', titular: true,
+    numero: 1, apelido: 'Mito', nome: 'Rogério Seni', nomeCamisa: 'SENI', referencia: 'Rogério Ceni', posicao: 'GOL', pe: 'D', titular: true,
     atributos: { FOR: 84, CUR: 90, QUE: 76, PRE: 96, FRI: 94 },
     especiais: [], estilo: 'O goleiro artilheiro',
     uniforme: { clube: 'São Paulo (goleiro)', padrao: 'faixa', camisa: '#2a2e35', cores: ['#d0021b', '#ffffff', '#111111'], calcao: '#2a2e35', meiao: '#2a2e35', numero: '#ffffff', gola: '#d0021b' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'curto', cor: '#3b2a1e' }, barba: 'nenhuma', faixa: null, altura: 1.88, porte: 'normal', coxas: 'normais', chuteira: '#111111', goleiro: true },
   },
   {
-    numero: 2, apelido: 'Dani', referencia: 'Daniel Alves', posicao: 'LD', pe: 'D', titular: true,
+    numero: 2, apelido: 'Dani', nome: 'Daniel Alvez', nomeCamisa: 'ALVEZ', referencia: 'Daniel Alves', posicao: 'LD', pe: 'D', titular: true,
     atributos: { FOR: 76, CUR: 77, QUE: 62, PRE: 72, FRI: 83 },
     especiais: [], estilo: 'Lateral que arrisca',
     uniforme: { clube: 'Barcelona', padrao: 'listras', camisa: '#a50044', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
     visual: { pele: PELE.parda, cabelo: { estilo: 'curto', cor: '#e8d27a' }, barba: 'rala', corBarba: '#2a1d14', faixa: null, altura: 1.72, porte: 'magro', coxas: 'normais', chuteira: '#f7d84a' },
   },
   {
-    numero: 5, apelido: 'Kaiser', referencia: 'Beckenbauer', posicao: 'ZAG', pe: 'D', titular: true,
+    numero: 5, apelido: 'Kaiser', nome: 'Bekenbauer', nomeCamisa: 'BEKENBAUER', referencia: 'Beckenbauer', posicao: 'ZAG', pe: 'D', titular: true,
     atributos: { FOR: 79, CUR: 68, QUE: 55, PRE: 70, FRI: 93 },
     especiais: [], estilo: 'O capitão elegante',
     uniforme: { clube: 'Alemanha', padrao: 'liso', camisa: '#f5f5f5', cores: [], calcao: '#111111', meiao: '#f5f5f5', numero: '#111111', gola: '#111111' },
     visual: { pele: PELE.claraRosada, cabelo: { estilo: 'medio', cor: '#6b4a2b' }, barba: 'nenhuma', faixa: null, altura: 1.81, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 4, apelido: 'Holandês', referencia: 'Ronald Koeman', posicao: 'ZAG', pe: 'D', titular: true,
+    numero: 4, apelido: 'Holandês', nome: 'Ronald Koemann', nomeCamisa: 'KOEMANN', referencia: 'Ronald Koeman', posicao: 'ZAG', pe: 'D', titular: true,
     atributos: { FOR: 99, CUR: 78, QUE: 75, PRE: 89, FRI: 97 },
     especiais: [], estilo: 'O zagueiro canhão',
     uniforme: { clube: 'Barcelona', padrao: 'listras', camisa: '#a50044', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
     visual: { pele: PELE.claraRosada, cabelo: { estilo: 'curto', cor: '#e2c27a' }, barba: 'nenhuma', faixa: null, altura: 1.81, porte: 'forte', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 3, apelido: 'R. Larcos', referencia: 'Roberto Carlos', posicao: 'LE', pe: 'E', titular: true,
+    numero: 3, apelido: 'Canhão', nome: 'Roberto Larcos', nomeCamisa: 'R. LARCOS', referencia: 'Roberto Carlos', posicao: 'LE', pe: 'E', titular: true,
     atributos: { FOR: 99, CUR: 97, QUE: 76, PRE: 76, FRI: 90 },
     especiais: ['trivela'], estilo: 'O canhão de efeito',
     uniforme: { clube: 'Real Madrid', padrao: 'liso', camisa: '#f8f8f8', cores: [], calcao: '#f8f8f8', meiao: '#f8f8f8', numero: '#3b2a70', gola: '#d4af37' },
     visual: { pele: PELE.negra, cabelo: { estilo: 'careca', cor: '#1a1410' }, barba: 'nenhuma', faixa: null, altura: 1.68, porte: 'forte', coxas: 'grossas', chuteira: '#ffffff' },
   },
   {
-    numero: 21, apelido: 'Maestro', referencia: 'Andrea Pirlo', posicao: 'MC', pe: 'D', titular: true,
+    numero: 21, apelido: 'Maestro', nome: 'Andrea Pirllo', nomeCamisa: 'PIRLLO', referencia: 'Andrea Pirlo', posicao: 'MC', pe: 'D', titular: true,
     atributos: { FOR: 77, CUR: 93, QUE: 97, PRE: 97, FRI: 96 },
     especiais: ['folhaSeca'], estilo: 'A queda maldita',
     uniforme: { clube: 'Milan', padrao: 'listras', camisa: '#c4142b', cores: ['#151515'], calcao: '#ffffff', meiao: '#151515', numero: '#ffffff', gola: '#151515' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'longo', cor: '#3a2a1f' }, barba: 'cheia', corBarba: '#3a2a1f', faixa: null, altura: 1.77, porte: 'magro', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 23, apelido: 'Becks', referencia: 'David Beckham', posicao: 'MD', pe: 'D', titular: true,
+    numero: 23, apelido: 'Becks', nome: 'David Beckam', nomeCamisa: 'BECKAM', referencia: 'David Beckham', posicao: 'MD', pe: 'D', titular: true,
     atributos: { FOR: 84, CUR: 99, QUE: 89, PRE: 98, FRI: 96 },
     especiais: [], estilo: 'O mestre da curva',
     uniforme: { clube: 'Manchester United', padrao: 'liso', camisa: '#da291c', cores: [], calcao: '#ffffff', meiao: '#111111', numero: '#ffffff', gola: '#ffffff' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'moicano', cor: '#e0c070' }, barba: 'nenhuma', faixa: null, altura: 1.80, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 10, apelido: 'Galinho', referencia: 'Zico', posicao: 'MEI', pe: 'D', titular: true,
+    numero: 10, apelido: 'Galinho', nome: 'Zicco', nomeCamisa: 'ZICCO', referencia: 'Zico', posicao: 'MEI', pe: 'D', titular: true,
     atributos: { FOR: 82, CUR: 97, QUE: 94, PRE: 99, FRI: 96 },
     especiais: [], estilo: 'Colocação perfeita',
     uniforme: { clube: 'Flamengo', padrao: 'aros', camisa: '#c4142b', cores: ['#111111'], calcao: '#ffffff', meiao: '#c4142b', numero: '#ffffff', gola: '#111111' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'medio', cor: '#2e2018' }, barba: 'nenhuma', faixa: null, altura: 1.72, porte: 'magro', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 80, apelido: 'Bruxo', referencia: 'Ronaldinho', posicao: 'ME', pe: 'D', titular: true,
+    numero: 80, apelido: 'Bruxo', nome: 'Ronaldiño', nomeCamisa: 'RONALDIÑO', referencia: 'Ronaldinho', posicao: 'ME', pe: 'D', titular: true,
     atributos: { FOR: 82, CUR: 95, QUE: 90, PRE: 94, FRI: 91 },
     especiais: [], estilo: 'Mágica por cima ou por baixo',
     uniforme: { clube: 'Barcelona', padrao: 'listras', camisa: '#a50044', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
     visual: { pele: PELE.negra, cabelo: { estilo: 'cacheado', cor: '#1a1410' }, barba: 'nenhuma', faixa: '#ffffff', altura: 1.82, porte: 'magro', coxas: 'normais', chuteira: '#ffffff' },
   },
   {
-    numero: 30, apelido: 'Pulga', referencia: 'Lionel Messi', posicao: 'ATA', pe: 'E', titular: true,
+    numero: 30, apelido: 'Pulga', nome: 'Lionel Mesi', nomeCamisa: 'MESI', referencia: 'Lionel Messi', posicao: 'ATA', pe: 'E', titular: true,
     atributos: { FOR: 80, CUR: 98, QUE: 90, PRE: 99, FRI: 96 },
     especiais: [], estilo: 'Precisão cirúrgica',
     uniforme: { clube: 'Barcelona', padrao: 'listras', camisa: '#a50044', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'curto', cor: '#4a3020' }, barba: 'cheia', corBarba: '#5a3a24', faixa: null, altura: 1.70, porte: 'magro', coxas: 'normais', chuteira: '#e63946' },
   },
   {
-    numero: 7, apelido: 'Robozão', referencia: 'Cristiano Ronaldo', posicao: 'ATA', pe: 'D', titular: true,
+    numero: 7, apelido: 'Robozão', nome: 'Cristiano Ronaldu', nomeCamisa: 'RONALDU', referencia: 'Cristiano Ronaldo', posicao: 'ATA', pe: 'D', titular: true,
     atributos: { FOR: 99, CUR: 73, QUE: 95, PRE: 79, FRI: 91 },
     especiais: ['semRotacao'], estilo: 'A pancada sem giro',
     uniforme: { clube: 'Real Madrid', padrao: 'liso', camisa: '#f8f8f8', cores: [], calcao: '#f8f8f8', meiao: '#f8f8f8', numero: '#3b2a70', gola: '#d4af37' },
@@ -110,77 +112,77 @@ export const ELENCO = [
 
   // ---------- Reservas ----------
   {
-    numero: 12, apelido: 'Chila', referencia: 'José Luis Chilavert', posicao: 'GOL', pe: 'E', titular: false,
+    numero: 12, apelido: 'Chila', nome: 'José Luis Chilabert', nomeCamisa: 'CHILABERT', referencia: 'José Luis Chilavert', posicao: 'GOL', pe: 'E', titular: false,
     atributos: { FOR: 92, CUR: 76, QUE: 74, PRE: 86, FRI: 94 },
     especiais: [], estilo: 'Goleiro de pé pesado',
     uniforme: { clube: 'Vélez (goleiro)', padrao: 'v', camisa: '#1d3f8f', cores: ['#ffffff'], calcao: '#1d3f8f', meiao: '#1d3f8f', numero: '#ffffff', gola: '#ffffff' },
     visual: { pele: PELE.bronzeada, cabelo: { estilo: 'curto', cor: '#1b1410' }, barba: 'nenhuma', faixa: null, altura: 1.88, porte: 'forte', coxas: 'normais', chuteira: '#111111', goleiro: true },
   },
   {
-    numero: 13, apelido: 'Nelinho', referencia: 'Nelinho', posicao: 'LD', pe: 'D', titular: false,
+    numero: 13, apelido: 'Rei da Trivela', nome: 'Nelinho', nomeCamisa: 'NELINHO', referencia: 'Nelinho', posicao: 'LD', pe: 'D', titular: false,
     atributos: { FOR: 97, CUR: 98, QUE: 75, PRE: 84, FRI: 88 },
     especiais: ['trivela'], estilo: 'A trivela impossível',
     uniforme: { clube: 'Cruzeiro', padrao: 'liso', camisa: '#0033a0', cores: [], calcao: '#ffffff', meiao: '#ffffff', numero: '#ffffff', gola: '#ffffff' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'volumoso', cor: '#4a3222' }, barba: 'bigode', corBarba: '#4a3222', faixa: null, altura: 1.80, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 14, apelido: 'Sinisa', referencia: 'Siniša Mihajlović', posicao: 'ZAG', pe: 'E', titular: false,
+    numero: 14, apelido: 'Sérvio', nome: 'Sinisa Mihajlovich', nomeCamisa: 'MIHAJLOVICH', referencia: 'Siniša Mihajlović', posicao: 'ZAG', pe: 'E', titular: false,
     atributos: { FOR: 96, CUR: 92, QUE: 86, PRE: 98, FRI: 94 },
     especiais: [], estilo: 'O zagueiro especialista',
     uniforme: { clube: 'Lazio', padrao: 'liso', camisa: '#87ceeb', cores: [], calcao: '#ffffff', meiao: '#87ceeb', numero: '#1d2a4d', gola: '#ffffff' },
     visual: { pele: PELE.claraRosada, cabelo: { estilo: 'raspado', cor: '#3a2a20' }, barba: 'nenhuma', faixa: null, altura: 1.85, porte: 'forte', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 16, apelido: 'Branco', referencia: 'Branco', posicao: 'LE', pe: 'E', titular: false,
+    numero: 16, apelido: 'Patada', nome: 'Branko', nomeCamisa: 'BRANKO', referencia: 'Branco', posicao: 'LE', pe: 'E', titular: false,
     atributos: { FOR: 98, CUR: 79, QUE: 77, PRE: 84, FRI: 95 },
     especiais: [], estilo: 'Patada de canhota',
     uniforme: { clube: 'Brasil', padrao: 'liso', camisa: '#ffdf00', cores: [], calcao: '#0033a0', meiao: '#ffffff', numero: '#009c3b', gola: '#009c3b' },
     visual: { pele: PELE.parda, cabelo: { estilo: 'cacheado', cor: '#1a1410' }, barba: 'nenhuma', faixa: null, altura: 1.73, porte: 'forte', coxas: 'grossas', chuteira: '#111111' },
   },
   {
-    numero: 15, apelido: 'Príncipe', referencia: 'Didi', posicao: 'MC', pe: 'D', titular: false,
+    numero: 15, apelido: 'Príncipe', nome: 'Didi', nomeCamisa: 'DIDI', referencia: 'Didi', posicao: 'MC', pe: 'D', titular: false,
     atributos: { FOR: 76, CUR: 91, QUE: 99, PRE: 95, FRI: 95 },
     especiais: ['folhaSeca'], estilo: 'O inventor da folha seca',
     uniforme: { clube: 'Botafogo', padrao: 'listras', camisa: '#ffffff', cores: ['#111111'], calcao: '#111111', meiao: '#9a9a9a', numero: '#ffffff', gola: '#111111' },
     visual: { pele: PELE.negraEscura, cabelo: { estilo: 'raspado', cor: '#141010' }, barba: 'nenhuma', faixa: null, altura: 1.75, porte: 'magro', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 8, apelido: 'Pernambucano', referencia: 'Juninho Pernambucano', posicao: 'MC', pe: 'D', titular: false,
+    numero: 8, apelido: 'Rei da Falta', nome: 'Juninho Pernambucano', nomeCamisa: 'JUNINHO', referencia: 'Juninho Pernambucano', posicao: 'MC', pe: 'D', titular: false,
     atributos: { FOR: 95, CUR: 96, QUE: 99, PRE: 99, FRI: 97 },
     especiais: ['semRotacao'], estilo: 'O especialista absoluto',
     uniforme: { clube: 'Vasco', padrao: 'diagonal', camisa: '#111111', cores: ['#ffffff'], calcao: '#111111', meiao: '#111111', numero: '#ffffff', gola: '#ffffff' },
     visual: { pele: PELE.morenaClara, cabelo: { estilo: 'curto', cor: '#1c1612' }, barba: 'nenhuma', faixa: null, altura: 1.78, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 20, apelido: 'Assunção', referencia: 'Marcos Assunção', posicao: 'MC', pe: 'D', titular: false,
+    numero: 20, apelido: 'Pé Calibrado', nome: 'Marcos Asunção', nomeCamisa: 'ASUNÇÃO', referencia: 'Marcos Assunção', posicao: 'MC', pe: 'D', titular: false,
     atributos: { FOR: 88, CUR: 95, QUE: 90, PRE: 97, FRI: 92 },
     especiais: [], estilo: 'Bola parada é gol',
     uniforme: { clube: 'Palmeiras', padrao: 'liso', camisa: '#006437', cores: [], calcao: '#ffffff', meiao: '#006437', numero: '#ffffff', gola: '#ffffff' },
     visual: { pele: PELE.parda, cabelo: { estilo: 'careca', cor: '#1e1610' }, barba: 'cavanhaque', corBarba: '#1e1610', faixa: null, altura: 1.75, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 17, apelido: 'Stevie G', referencia: 'Steven Gerrard', posicao: 'MC', pe: 'D', titular: false,
+    numero: 17, apelido: 'Stevie G', nome: 'Steven Gerard', nomeCamisa: 'GERARD', referencia: 'Steven Gerrard', posicao: 'MC', pe: 'D', titular: false,
     atributos: { FOR: 96, CUR: 83, QUE: 76, PRE: 85, FRI: 97 },
     especiais: [], estilo: 'Bomba de longe',
     uniforme: { clube: 'Liverpool', padrao: 'liso', camisa: '#c8102e', cores: [], calcao: '#c8102e', meiao: '#c8102e', numero: '#ffffff', gola: '#ffffff' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'raspado', cor: '#8a5a32' }, barba: 'nenhuma', faixa: null, altura: 1.85, porte: 'forte', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 19, apelido: 'Pibe', referencia: 'Diego Maradona', posicao: 'MEI', pe: 'E', titular: false,
+    numero: 19, apelido: 'Pibe', nome: 'Diego Maradonna', nomeCamisa: 'MARADONNA', referencia: 'Diego Maradona', posicao: 'MEI', pe: 'E', titular: false,
     atributos: { FOR: 83, CUR: 97, QUE: 92, PRE: 97, FRI: 95 },
     especiais: [], estilo: 'Canhota de ouro',
     uniforme: { clube: 'Argentina', padrao: 'listras', camisa: '#75aadb', cores: ['#ffffff'], calcao: '#111111', meiao: '#ffffff', numero: '#111111', gola: '#111111' },
     visual: { pele: PELE.morenaClara, cabelo: { estilo: 'volumoso', cor: '#141010' }, barba: 'nenhuma', faixa: null, altura: 1.65, porte: 'forte', coxas: 'grossas', chuteira: '#111111' },
   },
   {
-    numero: 11, apelido: 'Menino Ney', referencia: 'Neymar', posicao: 'ATA', pe: 'D', titular: false,
+    numero: 11, apelido: 'Menino Ney', nome: 'Neimar', nomeCamisa: 'NEIMAR', referencia: 'Neymar', posicao: 'ATA', pe: 'D', titular: false,
     atributos: { FOR: 79, CUR: 94, QUE: 86, PRE: 94, FRI: 88 },
     especiais: [], estilo: 'Ousadia e efeito',
     uniforme: { clube: 'Santos', padrao: 'liso', camisa: '#ffffff', cores: [], calcao: '#ffffff', meiao: '#ffffff', numero: '#111111', gola: '#111111' },
     visual: { pele: PELE.parda, cabelo: { estilo: 'moicano', cor: '#d9b45a' }, barba: 'rala', corBarba: '#2a1d14', faixa: null, altura: 1.75, porte: 'magro', coxas: 'normais', chuteira: '#2ecc71' },
   },
   {
-    numero: 22, apelido: 'Pinturicchio', referencia: 'Alessandro Del Piero', posicao: 'ATA', pe: 'D', titular: false,
+    numero: 22, apelido: 'Pinturicchio', nome: 'Alessandro Del Pierro', nomeCamisa: 'DEL PIERRO', referencia: 'Alessandro Del Piero', posicao: 'ATA', pe: 'D', titular: false,
     atributos: { FOR: 81, CUR: 96, QUE: 92, PRE: 97, FRI: 94 },
     especiais: [], estilo: 'A curva no ângulo',
     uniforme: { clube: 'Juventus', padrao: 'listras', camisa: '#ffffff', cores: ['#111111'], calcao: '#ffffff', meiao: '#111111', numero: '#ffffff', gola: '#111111' },
