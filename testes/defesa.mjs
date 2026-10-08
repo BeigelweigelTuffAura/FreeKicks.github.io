@@ -387,6 +387,7 @@ teste('barreira: bola na altura do peito rebate fraco; por cima, passa direto', 
 // ---------- Goleiro: antes do chute ----------
 
 teste('goleiro: começa no meio do ângulo e, antes do chute, dá o passo para o lado que a barreira não cobre', () => {
+  // (de 22 m a barreira tem 4: ele sai o deslocamento inteiro)
   const origem = { x: 0, z: 22 };
   const bola = criarBola({ x: origem.x, y: CONFIG.raioBola, z: origem.z });
   for (let s = 1; s <= 6; s++) {
@@ -415,7 +416,14 @@ teste('goleiro: começa no meio do ângulo e, antes do chute, dá o passo para o
   const semBarreira = criarGoleiro(lateral, null, CONFIG);
   assert.equal(b.lado, 1);
   assert.ok(semBarreira.base.x > 0.3 && semBarreira.base.x < 1.5, `bissetriz ${semBarreira.base.x}`);
-  assert.ok(Math.abs(g.base.x - (semBarreira.base.x - PADRAO_GOLEIRO.deslocamento)) < 1e-9);
+  // (barreira de 3: ele sai um pouco menos do meio)
+  assert.equal(b.jogadores.length, 3);
+  assert.ok(Math.abs(g.base.x - (semBarreira.base.x - PADRAO_GOLEIRO.deslocamento * 0.75)) < 1e-9);
+  // De longe, com 2 na barreira, sai só metade
+  const longe = { x: 0, z: 31 };
+  const b2 = montarBarreira(longe, CONFIG, sorteio(1));
+  assert.equal(b2.jogadores.length, 2);
+  assert.ok(Math.abs(criarGoleiro(longe, b2, CONFIG).base.x + b2.lado * PADRAO_GOLEIRO.deslocamento * 0.5) < 1e-9);
   assert.ok(g.pose.rotacaoY > 0.3, 'virado para a bola, à direita');
   // Sem barreira: no meio, numa falta central
   assert.ok(Math.abs(criarGoleiro(origem, null, CONFIG).base.x) < 1e-9);
