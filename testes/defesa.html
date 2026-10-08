@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Teste da defesa</title>
+  <!-- Mesmo import map do index.html -->
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0d2b16; color: #eef; font: 13px system-ui, sans-serif; overflow: hidden; }
+    canvas { display: block; }
+    #painel { position: fixed; left: 6px; top: 6px; right: 6px; display: flex; flex-wrap: wrap; gap: 4px; z-index: 2; }
+    #painel button, #painel select { font: inherit; padding: 4px 7px; border-radius: 6px; border: 0; background: rgba(0,0,0,0.55); color: #fff; }
+    #info { position: fixed; left: 6px; bottom: 6px; right: 6px; font: 11px monospace; white-space: pre-wrap; background: rgba(0,0,0,0.5); padding: 4px; border-radius: 6px; z-index: 2; }
+    .rotulo { position: fixed; font: bold 11px monospace; color: #fff; background: rgba(0,0,0,0.55); padding: 1px 4px; border-radius: 3px; z-index: 3; pointer-events: none; }
+    body.captura #painel, body.captura #info { display: none; }
+  </style>
+</head>
+<body>
+  <!--
+    Teste da animação da defesa (js/animacaoDefesa.js): goleiro, barreira e bola com a lógica de verdade.
+    Para abrir:  python3 -m http.server 8782   (na pasta do projeto)   e   http://localhost:8782/testes/defesa.html
+    Escolha a cobrança no menu e toque em "De novo". Opções no endereço:
+      ?cenario=NOME   encaixe | angulo | rasteiro | espalmada | porbaixo | bolada | gol
+      ?vista=NOME     tras (atrás do cobrador) | frente | lado | cima | barreira
+      ?logica=nova    usa js/goleiro.js, js/barreira.js e js/physics.js (padrão: as versões estáveis de js/v4/)
+      ?lenta=0        sem a câmera lenta perto do gol
+    Para os testes automáticos: window.teste (veja no fim do arquivo).
+  -->
+  <div id="painel">
+    <select id="cenario"></select>
+    <select id="vista"></select>
+    <button id="denovo" type="button">De novo</button>
+    <button id="pausa" type="button">Pausa</button>
+    <button id="devagar" type="button">Devagar</button>
+  </div>
+  <div id="info">carregando…</div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { criarAnimadorGoleiro, criarAnimadorBarreira } from '../js/animacaoDefesa.js';
+
+    const params = new URLSearchParams(location.search);
+    const nova = params.get('logica') === 'nova';
+    const pasta = nova ? '../js/' : '../js/v4/';
+    const { CONFIG } = await import('../js/v4/config.js');
+    const F = await import(pasta + 'physics.js');
+    const B = await import(pasta + 'barreira.js');
+    const G = await import(pasta + 'goleiro.js');
+    const P = await import(params.get('bonecos') === 'v4' ? '../js/v4/jogadores.js' : '../js/jogadores.js');
+    CONFIG.goleiro = { ...G.PADRAO_GOLEIRO, ...(CONFIG.goleiro || {}) };
+    CONFIG.barreira = { ...B.PADRAO_BARREIRA, ...(CONFIG.barreira || {}) };
+
+    // ---------- Cobranças de teste ----------
+    // alvo: onde a bola cruza a linha do gol { x, y } (ou 'goleiro' para mirar nele); v: m/s
+    // pulo: força a barreira a pular (true) ou ficar no chão (false); semente: erro de leitura do goleiro
+    const CENARIOS = {
+      encaixe: { falta: { x: 0, z: 22 }, alvo: 'goleiro', y: 1.2, v: 17, pulo: false, semente: 3, titulo: 'No meio, na altura do peito (encaixe)' },
+      angulo: { falta: { x: 0, z: 22 }, alvo: { lado: 'livre', x: 3.25, y: 2.25 }, v: 27, pulo: false, semente: 7, titulo: 'No ângulo (mergulho alto)' },
+      rasteiro: { falta: { x: 0, z: 22 }, alvo: { lado: 'livre', x: 3.0, y: 0.25 }, v: 24, pulo: false, semente: 5, titulo: 'Rasteiro no canto (mergulho baixo)' },
+      espalmada: { falta: { x: 0, z: 22 }, alvo: 'goleiro', dx: 0.35, y: 1.05, v: 33, pulo: false, semente: 11, titulo: 'Forte no corpo (espalmada)' },
+      porbaixo: { falta: { x: 0, z: 21 }, alvo: { lado: 'barreira', x: 1.6, y: 0.2 }, v: 22, pulo: true, semente: 2, rasteira: true, titulo: 'Barreira pula e a bola passa por baixo' },
+      bolada: { falta: { x: 0, z: 22 }, alvo: 'barreira', y: 1.2, v: 24, pulo: false, semente: 4, titulo: 'Bolada na barreira' },
+      gol: { falta: { x: 0, z: 22 }, alvo: { lado: 'livre', x: 3.45, y: 1.9 }, v: 31, pulo: true, semente: 9, titulo: 'Gol no canto (goleiro frustrado)' },
+    };
+
+    // ---------- Cena ----------
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.autoClear = false;
+    document.body.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x9fd3f0);
+    scene.add(new THREE.HemisphereLight(0xdff2ff, 0x3d6b2a, 1.5));
+    const sol = new THREE.DirectionalLight(0xffffff, 1.7);
+    sol.position.set(-20, 40, 25);
+    scene.add(sol);
+    {
+      const c = document.createElement('canvas');
+      c.width = 64; c.height = 64;
+      const x = c.getContext('2d');
+      x.fillStyle = '#4a9c43'; x.fillRect(0, 0, 64, 64);
+      x.fillStyle = '#3f8f3a'; x.fillRect(0, 0, 64, 32);
+      const t = new THREE.CanvasTexture(c);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(30, 30);
+      t.colorSpace = THREE.SRGBColorSpace;
+      const chao = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshLambertMaterial({ map: t }));
+      chao.rotation.x = -Math.PI / 2;
+      chao.position.z = 10;
+      scene.add(chao);
+      // Linhas: gol e grande área (referência de chão)
+      const branco = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const linha = (w, d, x0, z0) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), branco);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(x0, 0.004, z0);
+        scene.add(m);
+      };
+      linha(40.3, 0.12, 0, 0);
+      linha(18.3, 0.12, 0, 5.5);
+      linha(0.12, 5.5, -9.15, 2.75);
+      linha(0.12, 5.5, 9.15, 2.75);
+      linha(40.3, 0.12, 0, 16.5);
+      // Traves, travessão e rede simples
+      const trave = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      for (const x of [-3.66, 3.66]) {
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.44, 10), trave);
+        p.position.set(x, 1.22, 0);
+        scene.add(p);
+      }
+      const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 7.44, 10), trave);
+      tr.rotation.z = Math.PI / 2;
+      tr.position.set(0, 2.44, 0);
+      scene.add(tr);
+      const rede = new THREE.Mesh(new THREE.PlaneGeometry(7.32, 2.44, 24, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.35 }));
+      rede.position.set(0, 1.22, -2);
+      scene.add(rede);
+    }
+    const bolaMesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 12), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    scene.add(bolaMesh);
+    const sombraBola = P.criarSombraBlob(0.13);
+    scene.add(sombraBola);
+    // Mãos da colisão (para conferir as luvas): bolinhas de arame
+    const maosColisao = [0, 1].map(() => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true }));
+      m.visible = params.has('maos');
+      scene.add(m);
+      return m;
+    });
+
+    const goleiroBoneco = P.criarPersonagem({ visual: P.VISUAL_GOLEIRO_ADVERSARIO, uniforme: P.UNIFORMES.goleiroAdversario, numero: 1, nome: '' });
+    scene.add(goleiroBoneco.grupo);
+    const sombraGoleiro = P.criarSombraBlob(0.45);
+    scene.add(sombraGoleiro);
+    const animGoleiro = criarAnimadorGoleiro(goleiroBoneco);
+    const cobrador = P.criarPersonagem({ visual: { cabelo: { estilo: 'curto', cor: '#2a1d14' } }, uniforme: P.UNIFORMES.lendas, numero: 10, nome: 'TESTE' });
+    scene.add(cobrador.grupo);
+    const sombraCobrador = P.criarSombraBlob(0.4);
+    scene.add(sombraCobrador);
+
+    // ---------- Estado da cobrança ----------
+    const ESPERA = Number(params.get('espera') ?? 2.4); // s parado antes de carregar o chute
+    const CARGA = 0.35;
+    let cen;            // cenário atual
+    let bola, barreira, goleiro, cob, bonecosBarreira = [], animBarreira, aleatorio;
+    let fase, tJogo, tFase, tCobranca, tempo, tChute, chuteFeito, fimEspera, resultado, eventos, lenta;
+    let escala = 1;
+    let medidas;
+
+    function sorteio(semente) {
+      let a = semente * 7919 + 13;
+      return () => {
+        a |= 0;
+        a = (a + 0x6d2b79f5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    // Acha direção e elevação para a bola cruzar a linha do gol em (x, y), voando sem ninguém
+    function mirar(origem, alvo, v, rasteira) {
+      const voa = (dir, ele) => {
+        const b = F.criarBola({ x: origem.x, y: CONFIG.raioBola, z: origem.z });
+        b.vel = { x: Math.sin(dir) * Math.cos(ele) * v, y: Math.sin(ele) * v, z: -Math.cos(dir) * Math.cos(ele) * v };
+        for (let t = 0; t < 3; t += 1 / 240) {
+          const a = { ...b.pos };
+          F.passo(b, 1 / 240, CONFIG);
+          if (b.pos.z <= 0) return a;
+        }
+        return null;
+      };
+      let dir = Math.atan2(alvo.x - origem.x, origem.z);
+      let ele = rasteira ? 0.0 : 0.1;
+      for (let k = 0; k < 40; k++) {
+        const c = voa(dir, ele);
+        if (!c) { ele += 0.02; continue; }
+        if (!rasteira) ele += ((alvo.y - c.y) / origem.z) * 0.8;
+        dir += ((alvo.x - c.x) / origem.z) * 0.8;
+      }
+      return { dir, ele };
+    }
+
+    function montar(nome) {
+      cen = CENARIOS[nome] || CENARIOS.encaixe;
+      cen.nome = nome;
+      aleatorio = sorteio(cen.semente);
+      bola = F.criarBola({ x: cen.falta.x, y: CONFIG.raioBola, z: cen.falta.z });
+      barreira = B.montarBarreira(bola.pos, CONFIG, sorteio(cen.semente + 100));
+      barreira.pula = cen.pulo;
+      for (const j of barreira.jogadores) j.pulo.vai = cen.pulo;
+      goleiro = G.criarGoleiro(bola.pos, barreira, CONFIG);
+      for (const b of bonecosBarreira) { scene.remove(b.personagem.grupo, b.sombra); b.personagem.dispose(); }
+      bonecosBarreira = barreira.jogadores.map((j, i) => {
+        const personagem = P.criarPersonagem({ visual: P.visualAdversario(i + 2, j.altura), uniforme: P.UNIFORMES.adversario, numero: [4, 5, 6, 8, 3][i % 5], nome: '' });
+        const sombra = P.criarSombraBlob(0.4);
+        scene.add(personagem.grupo, sombra);
+        return { personagem, sombra };
+      });
+      animBarreira = criarAnimadorBarreira(bonecosBarreira.map((b) => b.personagem), { semente: cen.semente / 100 });
+      animGoleiro.reiniciar();
+      cob = P.criarCobranca(cobrador, { bola: { x: bola.pos.x, z: bola.pos.z }, alvo: { x: 0, z: 0 }, pe: 'D', cfg: CONFIG });
+      fase = 'pronto';
+      tJogo = 0; tFase = 0; tCobranca = 0; tempo = 0; chuteFeito = false; fimEspera = 0; resultado = null; eventos = []; lenta = { usada: false, ate: 0 };
+      escala = 1;
+      tChute = ESPERA + CARGA + cob.tempoContato;
+      medidas = {
+        menorYGoleiro: Infinity, menorSolaPlantada: Infinity, maiorSolaPlantada: -Infinity, menorYBarreira: Infinity,
+        erroLuvasMergulho: 0, erroLuvasMergulhoAntesToque: 0, quadrosMergulho: 0, deslize: 0, modos: [], estados: [],
+        msAnimacao: 0, quadros: 0, pesosSoltosDePe: 0,
+      };
+      anterior.pes = null;
+      desenharQuadro();
+    }
+
+    function alvoDoChute() {
+      const g = goleiro.pose;
+      if (cen.alvo === 'goleiro') return { x: g.x + (cen.dx || 0), y: cen.y };
+      if (cen.alvo === 'barreira') {
+        const j = barreira.jogadores[Math.min(1, barreira.jogadores.length - 1)];
+        // Reta da bola até o jogador, prolongada até a linha do gol
+        const k = bola.pos.z / (bola.pos.z - j.z);
+        return { x: bola.pos.x + (j.x - bola.pos.x) * k, y: cen.y };
+      }
+      const lado = cen.alvo.lado === 'livre' ? -barreira.lado : barreira.lado;
+      return { x: lado * cen.alvo.x, y: cen.alvo.y };
+    }
+
+    function chutar() {
+      const alvo = alvoDoChute();
+      const { dir, ele } = mirar(bola.pos, alvo, cen.v, cen.rasteira);
+      bola.vel = { x: Math.sin(dir) * Math.cos(ele) * cen.v, y: Math.sin(ele) * cen.v, z: -Math.cos(dir) * Math.cos(ele) * cen.v };
+      chuteFeito = true;
+    }
+
+    const anterior = { pes: null };
+    const infoDefesa = { fase: 'pronto', tempoDesdeChute: null, bola: null };
+
+    // Um quadro de 1/60 s (com câmera lenta perto do gol, como no jogo)
+    function passoQuadro() {
+      const dtReal = 1 / 60;
+      if (fase === 'voo' && !lenta.usada && params.get('lenta') !== '0') {
+        const { pos, vel } = bola;
+        if (vel.z < -8 && pos.z > 0 && pos.z < 3.5 && Math.abs(pos.x) < 4.3 && pos.y < 3) {
+          lenta.usada = true;
+          lenta.ate = tJogo + 0.35;
+        }
+      }
+      const alvoEscala = lenta.ate && tJogo < lenta.ate ? 0.35 : 1;
+      escala += (alvoEscala - escala) * Math.min(1, dtReal * (alvoEscala < escala ? 14 : 4));
+      const dt = dtReal * escala;
+      tJogo += dt;
+      tFase += dt;
+      if (fase === 'pronto' && tJogo >= ESPERA) { fase = 'carregando'; tFase = 0; }
+      if (fase === 'carregando' && tFase >= CARGA) { fase = 'corrida'; tFase = 0; tCobranca = 0; }
+      if (fase === 'corrida' || fase === 'voo' || fase === 'fim') tCobranca += dt;
+      // Cobrador
+      if (fase === 'pronto' || fase === 'carregando') cob.parado(tJogo);
+      else {
+        const r = cob.atualizar(tCobranca);
+        if (r.contato && fase === 'corrida') { chutar(); fase = 'voo'; tFase = 0; tempo = 0; }
+      }
+      // Física, barreira e goleiro (como em js/main.novo.js)
+      if (fase === 'voo' || fase === 'fim') {
+        const passos = Math.ceil(dt / (1 / 240));
+        const h = dt / passos;
+        for (let i = 0; i < passos; i++) {
+          tempo += h;
+          B.atualizarBarreira(barreira, tempo);
+          G.atualizarGoleiro(goleiro, bola, h, CONFIG, { chutou: true, tempoDesdeChute: tempo, cfgFisica: CONFIG, aleatorio });
+          F.passo(bola, h, CONFIG);
+          B.colidirBolaBarreira(bola, barreira, CONFIG);
+          G.colidirBolaGoleiro(bola, goleiro, CONFIG);
+        }
+        for (const e of bola.eventos) eventos.push(`${e.tipo}${e.modo ? ':' + e.modo : ''}${e.parte ? '/' + e.parte : ''}@${tempo.toFixed(2)}`);
+        bola.eventos.length = 0;
+      } else {
+        B.atualizarBarreira(barreira, -1);
+        G.atualizarGoleiro(goleiro, bola, dt, CONFIG, { chutou: false, tempoDesdeChute: -1, cfgFisica: CONFIG, aleatorio });
+      }
+      // Fim da jogada (resultado simples)
+      if (fase === 'voo') {
+        const parada = Math.hypot(bola.vel.x, bola.vel.y, bola.vel.z) < 0.3;
+        const r = bola.gol ? 'gol'
+          : goleiro.estado === 'segurou' ? 'defesa'
+          : bola.cruzamento && !bola.entrouNoGol ? 'fora'
+          : bola.vel.z > 0.5 && eventos.some((e) => e.startsWith('defesa')) ? 'defesa'
+          : bola.vel.z > 0.5 && eventos.some((e) => e.startsWith('barreira')) ? 'barreira'
+          : parada || tempo > 4 ? 'parou' : null;
+        if (r) { resultado = r; fase = 'fim'; tFase = 0; fimEspera = r === 'gol' ? 2.2 : 1.6; }
+      } else if (fase === 'fim') {
+        fimEspera -= dt;
+      }
+      // Animação da defesa
+      infoDefesa.fase = fase;
+      infoDefesa.tempoDesdeChute = fase === 'corrida' ? tCobranca - cob.tempoContato : (fase === 'voo' || fase === 'fim') ? tempo : null;
+      infoDefesa.bola = bola;
+      const t0 = performance.now();
+      animBarreira.atualizar(barreira, tJogo, dt, infoDefesa);
+      const sg = animGoleiro.atualizar(goleiro, tJogo, dt, infoDefesa);
+      medidas.msAnimacao += performance.now() - t0;
+      medidas.quadros++;
+      medir(sg);
+      return dt;
+    }
+
+    function medir(sg) {
+      const m = medidas;
+      const gp = goleiro.pose;
+      m.menorYGoleiro = Math.min(m.menorYGoleiro, sg.menorY);
+      m.menorYBarreira = Math.min(m.menorYBarreira, animBarreira.saida.menorY);
+      if (!m.modos.includes(sg.modo)) m.modos.push(sg.modo);
+      if (!m.estados.includes(gp.estado)) m.estados.push(gp.estado);
+      // De pé com os dois pés plantados: a sola mais baixa fica exatamente no chão
+      if (sg.pesPlantados.E && sg.pesPlantados.D) {
+        m.menorSolaPlantada = Math.min(m.menorSolaPlantada, sg.menorSola);
+        m.maiorSolaPlantada = Math.max(m.maiorSolaPlantada, sg.menorSola);
+      }
+      // Luvas nas mãos da colisão durante o mergulho
+      if (gp.estado === 'mergulhando' && sg.maosPresas) {
+        m.quadrosMergulho++;
+        m.erroLuvasMergulho = Math.max(m.erroLuvasMergulho, sg.erroLuvas);
+        if (!eventos.some((e) => e.startsWith('defesa'))) m.erroLuvasMergulhoAntesToque = Math.max(m.erroLuvasMergulhoAntesToque, sg.erroLuvas);
+      }
+      // Pé plantado não desliza: o bico fica no mesmo lugar de um quadro para o outro
+      if (anterior.pes) {
+        for (const lado of ['E', 'D']) {
+          if (anterior.pes[lado].plantado && sg.pesPlantados[lado]) {
+            const a = anterior.pes[lado];
+            const b = sg.bicos[lado];
+            m.deslize = Math.max(m.deslize, Math.hypot(a.x - b.x, a.z - b.z));
+          }
+        }
+      }
+      anterior.pes = {
+        E: { plantado: sg.pesPlantados.E, x: sg.bicos.E.x, z: sg.bicos.E.z },
+        D: { plantado: sg.pesPlantados.D, x: sg.bicos.D.x, z: sg.bicos.D.z },
+      };
+    }
+
+    // ---------- Câmeras ----------
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 300);
+    const VISTAS = ['tras', 'frente', 'lado', 'cima', 'barreira', 'perto'];
+    function posicionarCamera(vista, aspecto) {
+      const gx = goleiro ? goleiro.pose.centro.x : 0;
+      camera.aspect = aspecto;
+      camera.fov = 40;
+      let olha;
+      if (vista === 'tras') {
+        // Como no jogo: atrás do cobrador
+        camera.position.set(0, 2.2, 28);
+        olha = new THREE.Vector3(0, -2.7, 0);
+        camera.fov = 38;
+      } else if (vista === 'frente') {
+        camera.position.set(gx * 0.6, 1.55, 7.5);
+        olha = new THREE.Vector3(gx * 0.8, 1.0, 0);
+      } else if (vista === 'perto') {
+        camera.position.set(gx, 1.3, 4.5);
+        olha = new THREE.Vector3(gx, 0.9, 0);
+        camera.fov = 50;
+      } else if (vista === 'lado') {
+        camera.position.set(gx + 7.5, 1.4, 4.2);
+        olha = new THREE.Vector3(gx + 0.5, 0.9, 0.4);
+      } else if (vista === 'cima') {
+        camera.position.set(gx, 9.5, 4.5);
+        olha = new THREE.Vector3(gx, 0.3, 0.6);
+      } else {
+        // Barreira de lado e um pouco de cima
+        const js = barreira.jogadores;
+        const mx = js.reduce((a, j) => a + j.x, 0) / js.length;
+        const mz = js.reduce((a, j) => a + j.z, 0) / js.length;
+        camera.position.set(mx + 5.2, 2.2, mz + 3.6);
+        olha = new THREE.Vector3(mx, 0.95, mz);
+      }
+      camera.lookAt(olha);
+      camera.updateProjectionMatrix();
+    }
+
+    function atualizarCena() {
+      bolaMesh.position.set(bola.pos.x, bola.pos.y, bola.pos.z);
+      sombraBola.position.set(bola.pos.x, 0.012, bola.pos.z);
+      const s = animGoleiro.saida.sombra;
+      sombraGoleiro.position.set(s.x, 0.012, s.z);
+      sombraGoleiro.scale.setScalar(s.escala);
+      bonecosBarreira.forEach((b, i) => {
+        const j = barreira.jogadores[i];
+        b.sombra.position.set(j.x, 0.012, j.z);
+        const e = Math.max(0.45, 1 - (j.yPes || 0) * 1.2);
+        b.sombra.scale.set(e, e, e);
+      });
+      const g = cobrador.grupo.position;
+      sombraCobrador.position.set(g.x, 0.012, g.z);
+      if (goleiro.pose.maos) {
+        const m = goleiro.pose.maos;
+        maosColisao[0].position.set(m.direita.x, m.direita.y, m.direita.z);
+        maosColisao[1].position.set(m.esquerda.x, m.esquerda.y, m.esquerda.z);
+      }
+    }
+
+    // Desenha um quadro (ou um ladrilho de uma grade)
+    function desenharQuadro(vista = vistaAtual, ladrilho = null) {
+      atualizarCena();
+      const W = renderer.domElement.width;
+      const H = renderer.domElement.height;
+      const r = ladrilho || { x: 0, y: 0, w: W, h: H };
+      posicionarCamera(vista, r.w / r.h);
+      renderer.setViewport(r.x, H - r.y - r.h, r.w, r.h);
+      renderer.setScissor(r.x, H - r.y - r.h, r.w, r.h);
+      renderer.setScissorTest(true);
+      renderer.clear();
+      renderer.render(scene, camera);
+      renderer.setScissorTest(false);
+    }
+
+    function texto() {
+      const m = medidas;
+      const gp = goleiro.pose;
+      return `${cen.titulo} · fase ${fase} · t ${(tJogo - tChute).toFixed(2)} s do chute · goleiro ${gp.estado} / anim ${animGoleiro.saida.modo}`
+        + `\nresultado ${resultado || '-'} · eventos ${eventos.slice(0, 4).join(' ')}`
+        + `\nmenor y goleiro ${m.menorYGoleiro.toFixed(3)} · barreira ${m.menorYBarreira.toFixed(3)} · sola plantada ${m.menorSolaPlantada.toFixed(4)}..${m.maiorSolaPlantada.toFixed(4)}`
+        + ` · luvas no mergulho ${(m.erroLuvasMergulho * 100).toFixed(1)} cm (antes do toque ${(m.erroLuvasMergulhoAntesToque * 100).toFixed(1)}) · deslize ${(m.deslize * 1000).toFixed(1)} mm`;
+    }
+
+    // ---------- Tempo real (para olhar na mão) ----------
+    let vistaAtual = params.get('vista') || 'tras';
+    let pausado = false;
+    let devagar = false;
+    const sel = document.getElementById('cenario');
+    for (const [k, c] of Object.entries(CENARIOS)) sel.add(new Option(c.titulo, k));
+    const selV = document.getElementById('vista');
+    for (const v of VISTAS) selV.add(new Option('vista: ' + v, v));
+    selV.value = vistaAtual;
+    sel.value = params.get('cenario') || 'encaixe';
+    sel.onchange = () => montar(sel.value);
+    selV.onchange = () => { vistaAtual = selV.value; };
+    document.getElementById('denovo').onclick = () => montar(sel.value);
+    document.getElementById('pausa').onclick = () => { pausado = !pausado; };
+    document.getElementById('devagar').onclick = () => { devagar = !devagar; };
+    window.addEventListener('resize', () => renderer.setSize(window.innerWidth, window.innerHeight));
+    montar(sel.value);
+
+    const automatico = params.has('auto');
+    let acumulado = 0;
+    let ultimo = performance.now();
+    function loop(agora) {
+      if (automatico) return;
+      const real = Math.min(0.1, (agora - ultimo) / 1000);
+      ultimo = agora;
+      if (!pausado) {
+        acumulado += devagar ? real / 4 : real;
+        while (acumulado >= 1 / 60) {
+          acumulado -= 1 / 60;
+          passoQuadro();
+          if (fase === 'fim' && fimEspera <= 0) montar(sel.value);
+        }
+      }
+      desenharQuadro();
+      document.getElementById('info').textContent = texto();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    // ---------- Para os testes automáticos ----------
+    // teste.montar(nome); teste.avancarAte(s do chute); teste.grade([{ t, vista, rotulo }], colunas)
+    // teste.rodar(nome, ate) roda a cobrança inteira sem desenhar e devolve as medidas
+    function avancarAte(tDoChute) {
+      let n = 0;
+      while (tJogo - tChute < tDoChute - 1e-6 && n < 20000) { passoQuadro(); n++; }
+    }
+    function grade(quadros, colunas = 3) {
+      document.body.classList.add('captura');
+      document.querySelectorAll('.rotulo').forEach((e) => e.remove());
+      const W = renderer.domElement.width;
+      const H = renderer.domElement.height;
+      const linhas = Math.ceil(quadros.length / colunas);
+      const w = Math.floor(W / colunas);
+      const h = Math.floor(H / linhas);
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, W, H);
+      renderer.clear();
+      const ordem = quadros.map((q, i) => ({ ...q, i })).sort((a, b) => a.t - b.t);
+      for (const q of ordem) {
+        avancarAte(q.t);
+        const x = (q.i % colunas) * w;
+        const y = Math.floor(q.i / colunas) * h;
+        desenharQuadro(q.vista || 'frente', { x, y, w, h });
+        const el = document.createElement('div');
+        el.className = 'rotulo';
+        el.style.left = `${x + 3}px`;
+        el.style.top = `${y + 3}px`;
+        el.textContent = `${q.rotulo || ''}${q.t.toFixed(2)}s ${goleiro.pose.estado} ${animGoleiro.saida.modo}`;
+        document.body.appendChild(el);
+      }
+      return texto();
+    }
+    function rodar(nome, ate = 3.5) {
+      montar(nome);
+      avancarAte(ate);
+      return resumo();
+    }
+    function resumo() {
+      const m = medidas;
+      return {
+        cenario: cen.nome, resultado, eventos: eventos.slice(0, 8), estados: m.estados, modos: m.modos,
+        menorYGoleiro: +m.menorYGoleiro.toFixed(4), menorYBarreira: +m.menorYBarreira.toFixed(4),
+        solaPlantada: [+m.menorSolaPlantada.toFixed(5), +m.maiorSolaPlantada.toFixed(5)],
+        erroLuvasMergulhoCm: +(m.erroLuvasMergulho * 100).toFixed(2), erroLuvasAntesToqueCm: +(m.erroLuvasMergulhoAntesToque * 100).toFixed(2),
+        quadrosMergulho: m.quadrosMergulho, deslizeMm: +(m.deslize * 1000).toFixed(3),
+        msPorQuadro: +(m.msAnimacao / Math.max(1, m.quadros)).toFixed(3),
+      };
+    }
+    window.teste = {
+      montar, avancarAte, grade, rodar, resumo, texto,
+      cenarios: Object.keys(CENARIOS),
+      estado: () => ({ fase, tDoChute: tJogo - tChute, goleiro: goleiro.pose.estado, modo: animGoleiro.saida.modo, resultado }),
+      pronto: true,
+    };
+    document.getElementById('info').textContent = texto();
+  </script>
+</body>
+</html>

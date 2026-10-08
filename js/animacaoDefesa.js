@@ -716,6 +716,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     }
 
     // ---------- Pose, raiz e pés de cada modo ----------
+    let trQuadro = null;
     const yaw = gp.rotacaoY || 0;
     let modoChao = 'pes';    // 'pes' (pés no chão pelo IK) | 'livre' (só não deixa entrar) | 'encosta' (encosta no chão)
     let pesoLogica = 0;      // mãos presas às mãos da colisão
@@ -801,6 +802,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       espalmadaNoCorpo();
     } else if (modo === 'transicao') {
       const tr = s.transicao;
+      trQuadro = tr;
       const r = poseDaTransicao(tr, pose);
       raiz.rol = r.rol;
       modoChao = 'encosta';
@@ -842,7 +844,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       raiz.yaw = yaw;
       raiz.rol = rolLogica;
     } else if (modo === 'transicao') {
-      const tr = s.transicao;
+      const tr = trQuadro;
       raiz.p.x = tr.p.x;
       raiz.p.z = tr.p.z;
       raiz.yaw = tr.yaw;
