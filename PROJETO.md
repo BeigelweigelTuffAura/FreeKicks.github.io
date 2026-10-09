@@ -8,7 +8,7 @@ Inspirações: os jogos de falta do antigo Click Jogos, as cobranças de falta d
 
 Os gráficos são simples de propósito. O produto é a mecânica do chute: ela precisa ser gostosa de repetir.
 
-O tema: um time formado só por grandes cobradores de falta da história, disputando uma temporada. O jogador escolhe a camisa e joga as faltas decisivas de cada partida.
+O tema: um elenco formado só por grandes cobradores de falta da história. O jogador escolhe quem bate, vê a barreira e o goleiro com as cores do rival do clube daquele cobrador, imagina o lance e cobra. Sem campeonato: é bater falta e se divertir.
 
 ## Sobre mim e como trabalhar comigo
 
@@ -80,17 +80,16 @@ As mudanças valem na hora. Um botão "copiar valores" gera o texto com a config
 
 Motivo: o que define se o jogo é bom é a sensação do chute, e isso se descobre jogando e ajustando, não discutindo.
 
-## Modo Temporada (aprovado)
+## Modo de jogo (decisão de 9/10/2026)
 
-- **Tela inicial:** Temporada ou Treino livre. O Treino livre usa posições sorteadas, e é nele que fica o painel de ajuste.
-- **Escolha da camisa:** 6 uniformes que lembram clubes (rubro-negro listrado, todo branco, azul e grená etc.), com nome fictício. O elenco é sempre o mesmo, o Elenco Lendário; a camisa é a identidade do "meu time".
-- **Tela de escalação** em 2D com os 11 titulares e os 11 reservas, com as notas de cada um.
-- **Uma liga, 8 times, turno único: 7 jogos.** Os adversários são fictícios e genéricos.
-- **Cada jogo tem 3 faltas com contexto**, por exemplo: "Rival 1 x 0 você · 78' · falta a 24 m pela direita". O placar do adversário é sorteado conforme a força do rival, cada gol seu muda o placar, e o resultado vira pontos na tabela.
-- **Cobrador sugerido:** a cada falta, o jogo sugere o melhor cobrador em campo para aquela posição (pé bom e notas). O jogador só confirma, ou toca em "trocar".
-- **Especialista do banco:** uma vez por jogo, dá para chamar um reserva só para bater uma falta.
-- **Fim da temporada:** campeão ou a posição final, e o recorde salvo no aparelho.
-- **Fora:** jogar a partida inteira, dinheiro, transferências, cansaço, lesões, táticas e duelo entre jogadores.
+Um modo só: **treino livre com rival**. A cada falta o jogo sorteia a posição e um cobrador do Elenco Lendário
+(dá para trocar na lista, que mostra o mais indicado). O cobrador veste a camisa do clube em que foi marcante;
+a barreira e o goleiro vestem as cores de um rival desse clube. Placar de gols na sessão, replay e vídeo do lance.
+
+~~Modo Temporada (tela inicial, escolha de camisa, escalação, liga de 8 times com 7 jogos de 3 faltas,
+especialista do banco, tabela e recorde)~~: **retirado do escopo**. Decisão de quem conduz o projeto: o jogo é
+chegar, escolher o batedor e ficar batendo falta. Se um dia voltar, a base (elenco, notas por falta, sugestão
+de cobrador) já existe.
 
 ## Elenco Lendário e atributos (aprovado)
 
@@ -146,7 +145,7 @@ Os titulares (1 a 11) são escolha de quem conduz o projeto. Beckenbauer e Danie
 - Barreira e goleiro como bonecos simples, com a camisa do adversário. O goleiro tem tempo de reação, velocidade de mergulho e alcance: defende o fácil e sofre no ângulo.
 - **Câmeras:** antes do chute, câmera atrás do cobrador, mostrando o jogador como no PS2. No chute, câmera aérea (como nos jogos de falta do Click Jogos). No painel, uma opção para comparar com a câmera de trás.
 - Cobrador visível: boneco simples feito por código, com corrida e chute animados. A identidade vem de cabelo, barba, careca, porte físico e número.
-- Elenco Lendário com atributos, Modo Temporada e Treino livre.
+- Elenco Lendário com atributos e treino livre com rival (sem Modo Temporada).
 - **Acabamento barato e de muito impacto:** som (torcida, chute, gol), replay do golaço em câmera lenta e o nome da jogada na tela ("FOLHA SECA!").
 - Estádio simples: arquibancada em blocos e torcida feita de pontinhos coloridos.
 - Recorde salvo no próprio aparelho.
@@ -165,12 +164,15 @@ Várias ligas, duelo entre jogadores, multiplayer, moedas, loja, anúncios, comp
 5. ~~Barreira e goleiro.~~ Feito (etapa 4: lógica; etapa 5: animação com passos, mergulho e queda).
 6. ~~Cobrador visível antes do chute (câmera atrás do jogador, como no PS2).~~ Feito (etapa 5: cada lenda com a sua postura e corrida).
 7. ~~Elenco Lendário: atributos, pé bom e cobrador sugerido.~~ Feito (cobrador sorteado a cada falta; a lista mostra o sugerido). Camisa do clube marcante de cada lenda; barreira e goleiro com as cores de um rival desse clube.
-8. Modo Temporada: escalação, liga, tabela e especialista do banco. Treino livre e recorde. (Próximo.)
-9. ~~Acabamento: som, replay do golaço e nome da jogada.~~ Feito (etapa 5: som sintetizado, rede de pano, câmera lenta, vídeo do gol para baixar/compartilhar).
-10. Rodada de ajuste fino jogando no celular.
+8. ~~Modo Temporada.~~ Retirado do escopo (ver "Modo de jogo").
+9. ~~Acabamento: som, replay do golaço e nome da jogada.~~ Feito (etapa 5: som sintetizado, rede de pano, câmera lenta; etapa 6: replay com câmera atrás do gol e vídeo para salvar/compartilhar).
+10. Rodada de ajuste fino jogando no celular. (Em andamento: etapa 6 veio do primeiro teste no iPhone.)
 11. Depois: transformar em PWA para instalar na tela inicial do celular.
 
-Estado em 9/10/2026: publicado `v0.1 · etapa 5` (treino livre completo). Falta o Modo Temporada (item 8) e o ajuste fino (10).
+Estado em 9/10/2026: publicado `v0.1 · etapa 6`. O jogo está completo no escopo decidido; agora é ajuste fino.
+
+Ideias anotadas (não construir sem combinar): tipos de rede para escolher (véu de noiva, caixote, triangular).
+A rede é uma simulação presa ao formato do gol e à física da bola na rede; trocar o formato é refazer essa parte.
 
 ## Critério de sucesso da v0.1
 

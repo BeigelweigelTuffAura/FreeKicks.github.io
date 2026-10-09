@@ -1,7 +1,7 @@
 // Todos os números ajustáveis do jogo ficam aqui.
 // Unidades: metros, segundos, graus.
 
-export const VERSAO = 'v0.1 · etapa 5';
+export const VERSAO = 'v0.1 · etapa 6';
 
 export const CONFIG = {
   // Mundo
@@ -80,13 +80,19 @@ export const CONFIG = {
 
   // Câmera atrás do cobrador, estilo PES de PS2
   camera: {
-    atras: 6,             // m atrás do ponto entre a bola e o cobrador
+    atras: 6,             // m atrás da bola, no mínimo (recua mais se o cobrador começar de longe)
+    atrasCobrador: 3.5,   // m que a câmera fica atrás de onde o cobrador começa a corrida, no mínimo
     altura: 2.2,          // m do chão
-    pesoCobrador: 0.4,    // 0 = câmera atrás da bola, 1 = atrás do cobrador (no meio, os dois aparecem)
-    inclinacao: 10,       // graus olhando para baixo
+    pesoCobrador: 0.4,    // quanto a câmera desloca para o lado do cobrador (0 = fica no eixo bola → gol, 1 = na linha dele)
+    inclinacao: 10,       // graus olhando para baixo (ponto de partida; ajusta para caber o cobrador e o gol)
     fovMin: 40,           // campo de visão vertical mínimo
-    larguraVisivel: 24,   // campo de visão horizontal mínimo (garante o gol inteiro no celular em pé)
+    larguraVisivel: 32,   // campo de visão horizontal mínimo (graus): no celular em pé, mais = mais afastada
     seguir: 0.25,         // quanto a câmera acompanha a bola depois do chute (0 = parada)
+
+    // Câmera do replay: atrás do gol, como na TV
+    replayLado: 7,        // m para o lado (do lado contrário ao canto em que a bola vai)
+    replayAltura: 3.2,    // m do chão
+    replayAtras: 8,       // m atrás da linha do gol
 
     // Câmera aérea depois do chute (como nos jogos de falta do Click Jogos)
     aerea: true,
@@ -118,7 +124,7 @@ export const CONFIG = {
   },
 
   rastro: true,           // pontinhos atrás da bola durante o voo, para ver a curva
-  replay: true,           // grava a cobrança em vídeo; depois de um gol dá para baixar ou compartilhar
+  video: true,            // botão para gravar o replay em vídeo e salvar/compartilhar (some se o navegador não gravar)
 
   // Goleiro, barreira, cobrador, cenário e som: os padrões ficam nos próprios módulos
   // (PADRAO_GOLEIRO em js/goleiro.js, PADRAO_BARREIRA em js/barreira.js, PADRAO_COBRANCA em js/jogadores.js,

@@ -2837,6 +2837,7 @@ export const PADRAO_COBRANCA = {
   cadencia: 1.6,   // ciclos de corrida por segundo (cada ciclo = dois passos)
   postura: 'normal', // jeito de esperar atrás da bola (POSTURAS em poseCobradorPronto)
   braco: 'normal',   // 'aberto': braço de equilíbrio aberto no chute
+  giroCorpo: 0.45,   // no contato, quanto do ângulo da corrida o corpo ainda guarda (0 = de frente para o gol; 1 = na linha da corrida)
 };
 
 // Onde fica o peito do pé e o pé de apoio (no espaço do grupo) num momento do chute
@@ -2871,6 +2872,10 @@ export function criarCobranca(personagem, { bola, alvo = { x: 0, z: 0 }, pe = 'D
   const lado = pe === 'D' ? 1 : -1; // destro vem pela esquerda (+x local)
   const yawChute = Math.atan2(alvo.x - bola.x, alvo.z - bola.z);
   const frente = new THREE.Vector3(Math.sin(yawChute), 0, Math.cos(yawChute));
+  // No contato o corpo não fica de frente para o gol: guarda parte do ângulo da corrida, e o pé pega a
+  // bola meio de lado (chute com a parte de dentro do pé, como nos jogos de PS2). A bola vai para yawChute
+  // do mesmo jeito; a geometria do pé de apoio é feita com o corpo nesse ângulo, então o pé chega na bola.
+  const yawContato = yawChute - lado * c.angulo * GRAUS * limitar(c.giroCorpo ?? 0, 0, 1);
   const girar = (p, yaw) => new THREE.Vector3(
     p.x * Math.cos(yaw) + p.z * Math.sin(yaw), p.y, -p.x * Math.sin(yaw) + p.z * Math.cos(yaw));
 
@@ -2878,10 +2883,10 @@ export function criarCobranca(personagem, { bola, alvo = { x: 0, z: 0 }, pe = 'D
   const noContato = pesDoChute(personagem, TEMPO_CONTATO, pe);
   const raioBola = cfg.raioBola ?? 0.11;
   const bolaLocal = new THREE.Vector3(noContato.chute.x, 0, noContato.chute.z + raioBola + 0.02);
-  const apoioMundo = new THREE.Vector3(bola.x, 0, bola.z).add(girar(noContato.apoio.clone().sub(bolaLocal), yawChute));
+  const apoioMundo = new THREE.Vector3(bola.x, 0, bola.z).add(girar(noContato.apoio.clone().sub(bolaLocal), yawContato));
   apoioMundo.y = 0;
   const apoioNoPiso = pesDoChute(personagem, TEMPO_APOIO, pe).apoio;
-  const grupoNoApoio = apoioMundo.clone().sub(girar(apoioNoPiso, yawChute));
+  const grupoNoApoio = apoioMundo.clone().sub(girar(apoioNoPiso, yawContato));
   grupoNoApoio.y = 0;
 
   // Corrida em linha reta, chegando de trás e do lado do pé de apoio
@@ -2927,7 +2932,7 @@ export function criarCobranca(personagem, { bola, alvo = { x: 0, z: 0 }, pe = 'D
     personagem.aplicarPose(poseChute(p, pe, c.braco));
     if (p < TEMPO_APOIO) {
       // Último passo: continua na linha da corrida e vira o corpo para a direção do chute
-      const yaw = yawCorrida + (yawChute - yawCorrida) * suave(p / TEMPO_APOIO);
+      const yaw = yawCorrida + (yawContato - yawCorrida) * suave(p / TEMPO_APOIO);
       const pos = noCaminho(t);
       g.position.set(pos.x, 0, pos.z);
       g.rotation.set(0, yaw, 0);
@@ -2935,9 +2940,9 @@ export function criarCobranca(personagem, { bola, alvo = { x: 0, z: 0 }, pe = 'D
       // Pé de apoio preso no chão: o corpo gira por cima dele (sem escorregar)
       const outro = pe === 'D' ? 'E' : 'D';
       const apoio = personagem.pontoNoGrupo(personagem.juntas[`tornozelo${outro}`], 0, -0.07, 0.06);
-      const pos = apoioMundo.clone().sub(girar(apoio, yawChute));
+      const pos = apoioMundo.clone().sub(girar(apoio, yawContato));
       g.position.set(pos.x, 0, pos.z);
-      g.rotation.set(0, yawChute, 0);
+      g.rotation.set(0, yawContato, 0);
     }
     return { etapa: p >= 1 ? 'fim' : 'chute', progresso: p, contato: p >= TEMPO_CONTATO };
   }

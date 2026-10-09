@@ -28,6 +28,7 @@ A especificação completa (escopo, mecânica, ordem de construção) está em `
   - Os `PADRAO_*` dos módulos entram no `CONFIG` quando o jogo abre (`js/main.js`); o que está escrito em `config.js` tem prioridade.
   - `testes/fisica.mjs` e `testes/defesa.mjs`: testes no Node. Rodar `node testes/fisica.mjs` e `node testes/defesa.mjs` antes de cada commit que mexa na física, no goleiro ou na barreira. `testes/*.html` são páginas de inspeção visual.
 - Eixos: x = direita de quem cobra, y = para cima, z = do gol para quem cobra. Gol em z = 0, chute vai para z negativo.
+- **Replay = repetir a cobrança.** A física anda em passos fixos (`PASSO_FISICA`), e todo sorteio que afeta o lance vem de `sorteioDaJogada(n)` (montagem) ou `sorteioChute` (chute e goleiro no voo), com sementes guardadas em `registro`. Nunca use `Math.random`/`aleatorio` em algo que mude a bola, a barreira ou o goleiro depois do chute, senão o replay deixa de bater.
 - **Cache:** a hospedagem guarda arquivos em cache por alguns minutos. A cada etapa publicada, aumente o número `?v=N` em todos os imports e links (`index.html` e `js/*.js`) e atualize `VERSAO`:
   `sed -i 's/?v=[0-9]*/?v=NOVO/g' index.html js/*.js`
 - Testar no celular real é obrigatório; o rótulo de versão no canto da tela confirma qual versão está carregada.

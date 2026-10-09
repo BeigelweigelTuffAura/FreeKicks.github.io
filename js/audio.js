@@ -986,6 +986,9 @@ export function montarMotor(ctx, { cfg = null, aleatorio = Math.random, cru = fa
   };
 }
 
+// 0,3 s de silêncio em MP3 (para o truque do modo silencioso do iPhone)
+const MP3_SILENCIO = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAEluZm8AAAAPAAAABwAAAtAAZmZmZmZmZmZmZmZmZmaAgICAgICAgICAgICAgJmZmZmZmZmZmZmZmZmZs7Ozs7Ozs7Ozs7Ozs7OzzMzMzMzMzMzMzMzMzMzm5ubm5ubm5ubm5ubm5v//////////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQEIAAAAAAAAALQPzf7/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/+MYxAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV/+MYxDsAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV/+MYxHYAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV/+MYxLEAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxMQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxMQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxMQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+
 // ---------- Mudo salvo no aparelho ----------
 
 function lerMudo() {
@@ -1052,6 +1055,26 @@ export function criarAudio(cfg = null, opcoes = {}) {
     }
   }
 
+  // iPhone com o botão lateral no silencioso: o som de "web audio" fica mudo, mas um <audio> da página
+  // tocando (mesmo que seja silêncio) muda a categoria de som do site para "mídia", e aí o jogo toca.
+  // Precisa começar dentro de um toque; fica em loop enquanto a página está na frente.
+  let silencio = null;
+  function tocarSilencio() {
+    if (silencio || typeof Audio === 'undefined') return;
+    try {
+      const a = new Audio(MP3_SILENCIO);
+      a.loop = true;
+      a.volume = 0.01;
+      a.setAttribute('playsinline', '');
+      a.playsInline = true;
+      silencio = a;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => { silencio = null; });
+    } catch {
+      silencio = null;
+    }
+  }
+
   // iPhone antigo: tocar um som vazio dentro do toque destrava o áudio de vez
   function destravar() {
     try {
@@ -1102,8 +1125,10 @@ export function criarAudio(cfg = null, opcoes = {}) {
     if (!ctx) return;
     if (document.hidden) {
       if (ctx.state === 'running') ctx.suspend().catch(() => {});
+      if (silencio) silencio.pause();
     } else if (!mudo) {
       retomar();
+      if (silencio) silencio.play().catch(() => {});
     }
   }
 
@@ -1132,8 +1157,10 @@ export function criarAudio(cfg = null, opcoes = {}) {
   // Garante o destravamento mesmo que o jogo chame iniciar() num evento que o celular não aceita
   // (no toque, só o "soltar o dedo" vale como gesto para liberar som).
   if (Contexto && !contextoFixo && typeof document !== 'undefined') {
-    const aoTocar = () => {
+    const aoTocar = (e) => {
       if (!ctx || (!mudo && ctx.state !== 'running')) iniciar();
+      // Só o "soltar o dedo" e o clique valem como gesto para o <audio> do modo silencioso
+      if (!mudo && (e.type === 'touchend' || e.type === 'click')) tocarSilencio();
     };
     for (const ev of ['pointerup', 'touchend', 'click', 'keydown']) {
       document.addEventListener(ev, aoTocar, { capture: true, passive: true });

@@ -18,8 +18,8 @@
 //   (a gravidade puxa), cai e escorrega. No ar, só as mãos ainda se ajeitam um pouco.
 // Defende o fácil e sofre no ângulo.
 
-import { passo } from './physics.js?v=5';
-import { CONFIG } from './config.js?v=5';
+import { passo } from './physics.js?v=6';
+import { CONFIG } from './config.js?v=6';
 
 export const PADRAO_GOLEIRO = {
   reflexo: 0.3,             // s entre o chute e a primeira reação

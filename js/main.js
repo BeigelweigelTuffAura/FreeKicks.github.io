@@ -1,19 +1,19 @@
 import * as THREE from 'three';
-import { CONFIG, VERSAO } from './config.js?v=5';
-import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=5';
-import { ELENCO, sugerirCobradores } from './elenco.js?v=5';
-import { criarCenario, PADRAO_CENARIO } from './estadio.js?v=5';
-import { montarBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=5';
-import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO } from './goleiro.js?v=5';
+import { CONFIG, VERSAO } from './config.js?v=6';
+import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=6';
+import { ELENCO, sugerirCobradores } from './elenco.js?v=6';
+import { criarCenario, PADRAO_CENARIO } from './estadio.js?v=6';
+import { montarBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=6';
+import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO } from './goleiro.js?v=6';
 import {
   criarPersonagem, criarSombraBlob, criarCobranca, PADRAO_COBRANCA,
   visualAdversario, VISUAL_GOLEIRO_ADVERSARIO, UNIFORMES, poseChute, poseComemoracao, poseLamento, misturarPoses,
-} from './jogadores.js?v=5';
-import { criarAnimadorGoleiro, criarAnimadorBarreira } from './animacaoDefesa.js?v=5';
-import { criarAudio, PADRAO_AUDIO } from './audio.js?v=5';
-import { criarGravador, salvarVideo } from './replay.js?v=5';
-import { criarInterface } from './interface.js?v=5';
-import { criarPainel } from './painel.js?v=5';
+} from './jogadores.js?v=6';
+import { criarAnimadorGoleiro, criarAnimadorBarreira } from './animacaoDefesa.js?v=6';
+import { criarAudio, PADRAO_AUDIO } from './audio.js?v=6';
+import { criarGravador, salvarVideo } from './replay.js?v=6';
+import { criarInterface } from './interface.js?v=6';
+import { criarPainel } from './painel.js?v=6';
 
 // Os padrões de goleiro, barreira, cobrador, som e cenário moram nos próprios módulos;
 // entram no CONFIG aqui (o que estiver escrito no config.js tem prioridade)
@@ -39,6 +39,23 @@ const aleatorio = MODO_TESTE
     return () => ((s = (s * 16807) % 2147483647) / 2147483647);
   })()
   : Math.random;
+
+// Sorteio com semente (mulberry32): a mesma semente dá sempre a mesma sequência. Cada cobrança sorteia
+// uma semente para a montagem (barreira, goleiro, bonecos) e outra no chute (erro da mira, reação do
+// goleiro). O replay reaproveita as duas, e a bola, o goleiro e a barreira fazem exatamente o mesmo.
+function criarSorteio(semente) {
+  let a = Math.floor(semente * 4294967296) | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let sementeJogada = 0;
+// Um sorteio independente para cada uso (n = 0, 1, 2...), para a ordem das chamadas não importar
+const sorteioDaJogada = (n) => criarSorteio((sementeJogada + n * 0.6180339887) % 1);
+let sorteioChute = aleatorio; // erro da mira e goleiro durante o voo (semente sorteada no chute)
 
 // ---------- Renderizador, cena e cenário ----------
 
@@ -249,6 +266,11 @@ const RIVAIS = {
   'Alemanha': { nome: 'Holanda', padrao: 'liso', camisa: '#f08c00', cores: [], calcao: '#f4f4f4', meiao: '#f08c00', numero: '#151515', gola: '#151515' },
 };
 
+function nomeDoRival(jogador) {
+  const rival = jogador.uniforme && RIVAIS[jogador.uniforme.clube];
+  return rival ? rival.nome : '';
+}
+
 function uniformeAdversario(jogador) {
   const rival = jogador.uniforme && RIVAIS[jogador.uniforme.clube];
   if (!rival) return { ...UNIFORMES.adversario };
@@ -313,23 +335,23 @@ function montarAdversarios() {
     b.personagem.dispose();
   }
   const uniforme = uniformeAdversario(cobrador);
+  const sorteio = sorteioDaJogada(1);
   bonecosBarreira = barreira.jogadores.map((j, i) => {
     const personagem = criarPersonagem({
-      visual: visualAdversario(i + Math.floor(aleatorio() * 8), j.altura),
+      visual: visualAdversario(i + Math.floor(sorteio() * 8), j.altura),
       uniforme, numero: [4, 5, 6, 8, 3][i % 5], nome: '',
     });
     const sombra = criarSombraBlob(0.4);
     scene.add(personagem.grupo, sombra);
     return { personagem, sombra };
   });
-  animBarreira = criarAnimadorBarreira(bonecosBarreira.map((b) => b.personagem), { semente: aleatorio(), diagnostico: false });
+  animBarreira = criarAnimadorBarreira(bonecosBarreira.map((b) => b.personagem), { semente: sorteio(), diagnostico: false });
   if (!goleiroBoneco) {
     goleiroBoneco = criarPersonagem({ visual: VISUAL_GOLEIRO_ADVERSARIO, uniforme: UNIFORMES.goleiroAdversario, numero: 1, nome: '' });
     scene.add(goleiroBoneco.grupo);
-    animGoleiro = criarAnimadorGoleiro(goleiroBoneco, { semente: aleatorio(), diagnostico: false });
   }
-  // O goleiro é o mesmo boneco: zera a memória dos passos para ele não "deslizar" da posição antiga
-  animGoleiro.reiniciar();
+  // O goleiro é o mesmo boneco, mas a animação começa do zero a cada cobrança (com a semente da jogada)
+  animGoleiro = criarAnimadorGoleiro(goleiroBoneco, { semente: sorteio(), diagnostico: false });
 }
 
 // ---------- Câmera ----------
@@ -339,24 +361,79 @@ let olharBase = new THREE.Vector3();
 const olharAtual = new THREE.Vector3(); // para onde a câmera está olhando agora
 let misturaAerea = 0;                   // 0 = câmera atrás do cobrador, 1 = câmera aérea
 
-// Atrás do cobrador, estilo PES de PS2: a câmera fica atrás de um ponto entre a bola e o cobrador,
-// para os dois aparecerem com o gol ao fundo
+// Atrás do cobrador, estilo PES de PS2. A câmera fica no eixo bola → gol, atrás da bola, um pouco
+// deslocada para o lado do cobrador, e recua até o gol inteiro, a bola e o cobrador (lá atrás, no
+// começo da corrida) caberem na tela de uma vez. Gira de leve para o lado do cobrador quando precisa.
 function posicionarCamera() {
   const c = CONFIG.camera;
-  const ancora = {
-    x: bola.pos.x + (animacao.inicio.x - bola.pos.x) * c.pesoCobrador,
-    z: bola.pos.z + (animacao.inicio.z - bola.pos.z) * c.pesoCobrador,
-  };
-  const distancia = Math.hypot(ancora.x, ancora.z);
-  const sx = ancora.x / distancia;
-  const sz = ancora.z / distancia;
-  cameraBase = new THREE.Vector3(ancora.x + sx * c.atras, c.altura, ancora.z + sz * c.atras);
-  const distanciaGol = Math.hypot(cameraBase.x, cameraBase.z);
-  olharBase = new THREE.Vector3(0, c.altura - distanciaGol * Math.tan(c.inclinacao * GRAUS), 0);
+  const dist = Math.hypot(bola.pos.x, bola.pos.z);
+  const ax = bola.pos.x / dist;  // do gol para a bola (unitário)
+  const az = bola.pos.z / dist;
+  const lx = az;                 // para a direita de quem cobra
+  const lz = -ax;
+  const kx = animacao.inicio.x - bola.pos.x;
+  const kz = animacao.inicio.z - bola.pos.z;
+  const lateral = kx * lx + kz * lz; // m que o cobrador começa para o lado do eixo
+  const fundo = kx * ax + kz * az;   // m que ele começa atrás da bola
+  const hfov = 2 * Math.atan(Math.tan((camera.fov * GRAUS) / 2) * camera.aspect);
+  const vfov = camera.fov * GRAUS;
+  const meia = CONFIG.golLargura / 2 + 1.0; // com folga: a rede e a estrutura passam da trave
+  let atras = Math.max(c.atras, fundo + c.atrasCobrador);
+  let cx = 0;
+  let cz = 0;
+  let yaw = 0;
+  let inclinacao = -c.inclinacao * GRAUS;
+  for (let i = 0; i < 16; i++) {
+    cx = bola.pos.x + ax * atras + lx * lateral * c.pesoCobrador;
+    cz = bola.pos.z + az * atras + lz * lateral * c.pesoCobrador;
+    // Ângulo horizontal (em relação à direção câmera → gol; + = direita) e vertical de cada ponto
+    const ang = (px, pz) => {
+      const dx = px - cx;
+      const dz = pz - cz;
+      return Math.atan2(dx * lx + dz * lz, -(dx * ax + dz * az));
+    };
+    const dCobrador = Math.hypot(animacao.inicio.x - cx, animacao.inicio.z - cz);
+    const aCobrador = ang(animacao.inicio.x, animacao.inicio.z);
+    const folga = Math.atan2(0.7, dCobrador);
+    const h = [ang(-meia, 0), ang(meia, 0), ang(bola.pos.x, bola.pos.z), aCobrador - folga, aCobrador + folga];
+    const v = [Math.atan2(-c.altura, dCobrador), Math.atan2(CONFIG.golAltura + 0.4 - c.altura, Math.hypot(cx, cz))];
+    const hMin = Math.min(...h);
+    const hMax = Math.max(...h);
+    yaw = (hMin + hMax) / 2;
+    inclinacao = (v[0] + v[1]) / 2;
+    if (hMax - hMin <= hfov * 0.86 && v[1] - v[0] <= vfov * 0.9) break;
+    atras += 0.75;
+  }
+  cameraBase = new THREE.Vector3(cx, c.altura, cz);
+  const distanciaGol = Math.hypot(cx, cz);
+  const dirx = -ax * Math.cos(yaw) + lx * Math.sin(yaw);
+  const dirz = -az * Math.cos(yaw) + lz * Math.sin(yaw);
+  olharBase = new THREE.Vector3(cx + dirx * distanciaGol, c.altura + distanciaGol * Math.tan(inclinacao), cz + dirz * distanciaGol);
   camera.position.copy(cameraBase);
   olharAtual.copy(olharBase);
   camera.lookAt(olharAtual);
   misturaAerea = 0;
+}
+
+// Câmera do replay: atrás do gol, baixa, do lado contrário ao canto em que a bola vai (como na TV).
+// Começa olhando para o cobrador e vai acompanhando a bola.
+function poseReplay() {
+  const c = CONFIG.camera;
+  const lado = (registro && registro.mira < 0 ? 1 : -1) * c.replayLado;
+  const pos = new THREE.Vector3(lado, c.replayAltura, -c.replayAtras);
+  // Olha para a bola (um pouco puxado para o meio do gol, para o gol ficar na tela o tempo todo)
+  const olhar = new THREE.Vector3(bola.pos.x, bola.pos.y + 0.3, bola.pos.z).lerp(new THREE.Vector3(0, 1.2, 0), 0.3);
+  // Zoom como o cinegrafista: fechado com a bola longe, abre conforme ela chega
+  const d = pos.distanceTo(bola.pos);
+  const k = Math.min(1, Math.max(0, (d - 9) / 18));
+  const larguraVisivel = 34 - 20 * k; // graus de campo de visão horizontal: 34 perto, 14 longe
+  return { pos, olhar, larguraVisivel };
+}
+
+// Campo de visão a partir da largura visível (graus na horizontal), respeitando o mínimo vertical
+function fovParaLargura(larguraVisivel) {
+  const fov = 2 * Math.atan(Math.tan((larguraVisivel * GRAUS) / 2) / camera.aspect) / GRAUS;
+  return Math.max(CONFIG.camera.fovMin, fov);
 }
 
 // Câmera aérea: alta e de lado (diagonal), olhando para um ponto entre a bola e o gol.
@@ -395,6 +472,20 @@ function atualizarCamera(dt) {
     olharAlvo.x += (bola.pos.x - inicio.x) * c.seguir;
   }
 
+  // No replay a câmera é outra: atrás do gol, parada, só acompanhando a bola com o olhar
+  if (replay) {
+    const rp = poseReplay();
+    camera.position.copy(rp.pos);
+    olharAtual.lerp(rp.olhar, 1 - Math.exp(-dt * 7));
+    camera.lookAt(olharAtual);
+    if (estado.fase !== 'fim') {
+      camera.fov += (fovParaLargura(rp.larguraVisivel) - camera.fov) * (1 - Math.exp(-dt * 4));
+      camera.updateProjectionMatrix();
+    }
+    misturaAerea = 0;
+    return;
+  }
+
   // Troca para a aérea com uma transição suave (ou corte seco, se o tempo for 0)
   const querAerea = emJogo && c.aerea ? 1 : 0;
   if (c.aereaTransicao <= 0) misturaAerea = querAerea;
@@ -419,9 +510,10 @@ function ajustarTela() {
   renderer.setSize(largura, altura);
   camera.aspect = largura / altura;
   // No celular em pé a tela é estreita: abre o campo de visão para o gol caber inteiro
-  const fovParaLargura = 2 * Math.atan(Math.tan((CONFIG.camera.larguraVisivel * GRAUS) / 2) / camera.aspect) / GRAUS;
-  camera.fov = Math.max(CONFIG.camera.fovMin, fovParaLargura);
+  camera.fov = fovParaLargura(CONFIG.camera.larguraVisivel);
   camera.updateProjectionMatrix();
+  // Girou o celular ou mudou o zoom: enquadra de novo
+  if (animacao && (estado.fase === 'pronto' || estado.fase === 'carregando')) posicionarCamera();
 }
 window.addEventListener('resize', ajustarTela);
 ajustarTela();
@@ -450,17 +542,45 @@ function zerarJogada() {
 
 const audio = criarAudio(CONFIG);
 
-// Replay: grava a tela e o som durante a cobrança; o vídeo do gol fica guardado até a próxima cobrança
+// Replay: a última cobrança guardada (falta, cobrador, chute e sementes) roda de novo com a câmera
+// atrás do gol. O vídeo é gravado durante o replay (tela e som), e depois dá para salvar ou compartilhar.
 const gravador = criarGravador({ canvas: renderer.domElement, audio });
-let videoGol = null; // { blob, nome } do último gol
-const botaoVideo = document.getElementById('botao-video');
-botaoVideo.addEventListener('click', async (e) => {
+let registro = null;   // a última cobrança feita
+let replay = null;     // { gravar } enquanto o replay roda
+let videoGol = null;   // { blob, nome } do replay gravado
+const PAUSA_REPLAY = 0.8; // s parado antes da corrida, no replay
+const botoes = {
+  replay: document.getElementById('botao-replay'),
+  video: document.getElementById('botao-video'),
+  salvar: document.getElementById('botao-salvar'),
+};
+botoes.replay.addEventListener('click', (e) => {
+  e.currentTarget.blur();
+  iniciarReplay({ gravar: false });
+});
+botoes.video.addEventListener('click', (e) => {
+  e.currentTarget.blur();
+  iniciarReplay({ gravar: true });
+});
+botoes.salvar.addEventListener('click', async (e) => {
   e.currentTarget.blur();
   if (!videoGol) return;
-  botaoVideo.disabled = true;
-  await salvarVideo(videoGol.blob, videoGol.nome);
-  botaoVideo.disabled = false;
+  botoes.salvar.disabled = true;
+  try {
+    await salvarVideo(videoGol.blob, videoGol.nome);
+  } finally {
+    botoes.salvar.disabled = false;
+  }
 });
+
+// Os botões aparecem depois da cobrança e ficam até o próximo chute
+function mostrarAcoes() {
+  const pode = Boolean(registro) && !replay && (estado.fase === 'fim' || estado.fase === 'pronto');
+  botoes.replay.hidden = !pode;
+  botoes.video.hidden = !(pode && CONFIG.video && gravador.disponivel && !videoGol);
+  botoes.salvar.hidden = !(pode && videoGol);
+}
+
 const ui = criarInterface({
   aoEscolherCobrador: (jogador) => escolherCobrador(jogador),
   aoAlternarMudo: () => {
@@ -527,6 +647,7 @@ function escolherCobrador(jogador) {
   const item = lista.find((x) => x.jogador === jogador) || lista[0];
   cobrador = item.jogador;
   ui.mostrarCobrador(cobrador, item.nota, lista);
+  ui.mostrarFalta(falta, nomeDoRival(cobrador));
   vestirCobrador(cobrador);
   montarAdversarios();
   posicionarCamera();
@@ -605,23 +726,18 @@ elementos.contatoBola.addEventListener('pointerup', () => {
 // ---------- Nova cobrança ----------
 
 function novaCobranca() {
-  // Fecha a gravação da cobrança anterior: gol fica guardado para baixar, o resto é jogado fora
-  if (gravador.gravando) {
-    if (jogada.resultado === 'gol') {
-      const nome = `gol-${(cobrador.apelido || cobrador.nome).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-      gravador.parar().then((blob) => {
-        if (!blob) return;
-        videoGol = { blob, nome };
-        botaoVideo.hidden = false;
-      });
-    } else {
-      gravador.descartar();
-    }
+  if (gravador.gravando) gravador.descartar(); // só o replay grava; se sobrou algo ligado, joga fora
+  const emReplay = Boolean(replay);
+  if (emReplay) {
+    falta = { ...registro.falta };
+    cobrador = registro.cobrador;
+  } else if (!estado.fixa) {
+    falta = sortearFalta();
   }
-  if (!estado.fixa) falta = sortearFalta();
+  sementeJogada = emReplay ? registro.sementeJogada : aleatorio();
   bola = criarBola(posicaoDaFalta(falta));
   bolaMesh.quaternion.identity();
-  barreira = montarBarreira(bola.pos, CONFIG, aleatorio);
+  barreira = montarBarreira(bola.pos, CONFIG, sorteioDaJogada(0));
   goleiro = criarGoleiro(bola.pos, barreira, CONFIG);
   estado.fase = 'pronto';
   estado.carga = 0;
@@ -635,7 +751,6 @@ function novaCobranca() {
   cenario.torcida.festa(0);
   ui.esconderResultado();
   ui.emJogo(false);
-  ui.mostrarFalta(falta);
   ui.mostrarMensagem('');
   elementos.dica.style.visibility = 'visible';
 
@@ -644,23 +759,78 @@ function novaCobranca() {
 
   // Cobrador sorteado a cada falta (com a falta fixa, mantém a escolha); a lista mostra o sugerido
   const lista = sugerirCobradores(ELENCO, falta);
-  if (!cobrador || !estado.fixa) cobrador = ELENCO[Math.floor(aleatorio() * ELENCO.length)];
+  if (!emReplay && (!cobrador || !estado.fixa)) cobrador = ELENCO[Math.floor(aleatorio() * ELENCO.length)];
   const nota = lista.find((x) => x.jogador === cobrador).nota;
   ui.mostrarCobrador(cobrador, nota, lista);
+  ui.mostrarFalta(falta, nomeDoRival(cobrador));
   vestirCobrador(cobrador);
   montarAdversarios();
-
   posicionarCamera();
-  mostrarMira(true);
-  atualizarMira();
-  mostrarContato();
-  audio.apito();
+
+  if (emReplay) {
+    // Replay: a mesma falta, o mesmo cobrador e o mesmo chute; só a câmera muda
+    contato = { ...registro.contato };
+    mira.x = registro.mira;
+    mostrarContato();
+    mostrarMira(false);
+    estado.forca = registro.forca;
+    estado.fase = 'corrida';
+    estado.tCobranca = -PAUSA_REPLAY;
+    sorteioChute = criarSorteio(registro.sementeChute);
+    elementos.dica.style.visibility = 'hidden';
+    audio.torcidaTensao(animacao.tempoContato + PAUSA_REPLAY);
+    if (replay.gravar) gravador.comecar();
+  } else {
+    mostrarMira(true);
+    atualizarMira();
+    mostrarContato();
+    audio.apito();
+  }
   audio.torcidaAmbiente(0.45);
+  mostrarAcoes();
+}
+
+function iniciarReplay({ gravar }) {
+  if (!registro || replay) return;
+  if (estado.fase !== 'fim' && estado.fase !== 'pronto') return;
+  replay = { gravar: Boolean(gravar && CONFIG.video && gravador.disponivel) };
+  ui.modoReplay(true);
+  mostrarAcoes();
+  novaCobranca();
+}
+
+// Fim do replay: guarda o vídeo (se gravou) e volta para o jogo
+function encerrarReplay() {
+  const r = replay;
+  replay = null;
+  ui.modoReplay(false);
+  ajustarTela();
+  if (r.gravar) {
+    const apelido = (cobrador.apelido || cobrador.nome).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const nome = `${jogada.resultado === 'gol' ? 'gol' : 'falta'}-${apelido}`;
+    gravador.parar().then((blob) => {
+      if (!blob) return;
+      videoGol = { blob, nome };
+      mostrarAcoes();
+    });
+  }
+  novaCobranca();
+}
+
+// Tocou na tela no meio do replay: pula para a próxima cobrança
+function pularReplay() {
+  if (!replay) return;
+  if (replay.gravar) gravador.descartar();
+  replay = null;
+  ui.modoReplay(false);
+  ajustarTela();
+  novaCobranca();
 }
 
 function comecarCarga() {
-  // Apertar CHUTAR com a bola ainda no ar já prepara a próxima cobrança
-  if (estado.fase === 'voo' || estado.fase === 'fim') novaCobranca();
+  // Apertar CHUTAR com a bola ainda no ar (ou no replay) já prepara a próxima cobrança
+  if (replay) pularReplay();
+  else if (estado.fase === 'voo' || estado.fase === 'fim') novaCobranca();
   if (estado.fase !== 'pronto' || ui.listaAberta()) return;
   estado.fase = 'carregando';
   estado.carga = 0;
@@ -676,16 +846,20 @@ function soltarChute() {
   estado.fase = 'corrida';
   estado.tCobranca = 0;
   audio.torcidaTensao(animacao.tempoContato);
-  // Começa a gravar o replay (o botão do gol anterior some: a cobrança nova substitui o vídeo)
-  botaoVideo.hidden = true;
-  if (CONFIG.replay && gravador.disponivel) gravador.comecar();
+  // Guarda a cobrança para o replay (a nova substitui a anterior e o vídeo dela)
+  const sementeChute = aleatorio();
+  sorteioChute = criarSorteio(sementeChute);
+  registro = { falta: { ...falta }, cobrador, contato: { ...contato }, mira: mira.x, forca: estado.forca, sementeJogada, sementeChute };
+  videoGol = null;
+  mostrarAcoes();
 }
 
 // O pé encontra a bola: a física assume daqui
 function executarChute() {
-  tiro = chutar(bola, { alvo: { x: mira.x, z: 0 }, forca: estado.forca, contato, cobrador, pressao: 0 }, CONFIG, aleatorio);
+  tiro = chutar(bola, { alvo: { x: mira.x, z: 0 }, forca: estado.forca, contato, cobrador, pressao: 0 }, CONFIG, sorteioChute);
   estado.fase = 'voo';
   estado.tempo = 0;
+  restoFisica = 0;
   mostrarMira(false);
   ui.emJogo(true);
   ui.mostrarMensagem(`Força ${Math.round(estado.forca * 100)}% · ${Math.round(tiro.velocidade * 3.6)} km/h`);
@@ -735,6 +909,10 @@ const telaJogo = document.getElementById('jogo');
 let arrasto = null;
 telaJogo.addEventListener('pointerdown', (e) => {
   audio.iniciar();
+  if (replay) {
+    pularReplay();
+    return;
+  }
   if (estado.fase === 'voo' || estado.fase === 'fim') {
     novaCobranca();
     return;
@@ -851,14 +1029,16 @@ function quaseGol() {
 }
 
 function mostrarResultado(resultado) {
-  estado.cobrancas++;
+  if (!replay) estado.cobrancas++;
   jogada.resultado = resultado;
   let titulo;
   let tipo = 'erro';
   const sub = [];
   if (resultado === 'gol') {
-    estado.gols++;
-    estado.sequencia++;
+    if (!replay) {
+      estado.gols++;
+      estado.sequencia++;
+    }
     tipo = 'gol';
     titulo = 'GOL!';
     const { x, y } = bola.cruzamento;
@@ -873,7 +1053,7 @@ function mostrarResultado(resultado) {
     audio.torcidaGol();
     cenario.torcida.festa(1);
   } else {
-    estado.sequencia = 0;
+    if (!replay) estado.sequencia = 0;
     if (resultado === 'defesa') {
       tipo = 'defesa';
       titulo = jogada.defesa === 'segurou' ? 'DEFENDEU!' : 'QUE DEFESA!';
@@ -898,6 +1078,7 @@ function mostrarResultado(resultado) {
   }
   ui.mostrarResultado({ tipo, titulo, sub: sub.join(' · ') });
   ui.mostrarPlacar(placar());
+  mostrarAcoes();
 }
 
 // ---------- Animação dos bonecos ----------
@@ -1007,14 +1188,19 @@ function ajustarQualidade(dtReal) {
 }
 
 // Física, barreira e goleiro em passos pequenos (a ordem importa)
+// A física anda sempre em passos iguais (PASSO_FISICA), guardando a sobra para o próximo quadro:
+// assim a cobrança dá o mesmo resultado em qualquer celular, e o replay repete exatamente o chute
+let restoFisica = 0;
 function simular(dt) {
-  const passos = Math.ceil(dt / PASSO_FISICA);
-  const h = dt / passos;
+  restoFisica += dt;
+  const passos = Math.floor(restoFisica / PASSO_FISICA);
+  restoFisica -= passos * PASSO_FISICA;
+  const h = PASSO_FISICA;
   for (let i = 0; i < passos; i++) {
     estado.tempo += h;
     const anteriorZ = bola.pos.z;
     atualizarBarreira(barreira, estado.tempo);
-    atualizarGoleiro(goleiro, bola, h, CONFIG, { chutou: true, tempoDesdeChute: estado.tempo, cfgFisica: CONFIG, aleatorio });
+    atualizarGoleiro(goleiro, bola, h, CONFIG, { chutou: true, tempoDesdeChute: estado.tempo, cfgFisica: CONFIG, aleatorio: sorteioChute });
     passo(bola, h, CONFIG);
     colidirBolaBarreira(bola, barreira, CONFIG);
     colidirBolaGoleiro(bola, goleiro, CONFIG);
@@ -1063,7 +1249,7 @@ function quadro() {
   } else if (estado.fase === 'fim') {
     estado.tFim += dt;
     estado.espera -= dt;
-    if (estado.espera <= 0) novaCobranca();
+    if (estado.espera <= 0) (replay ? encerrarReplay() : novaCobranca());
   }
 
   if (estado.fase === 'pronto' || estado.fase === 'carregando') atualizarMira();
@@ -1103,10 +1289,14 @@ if (MODO_TESTE) {
       estado.carga = forca;
       soltarChute();
     },
-    estado: () => ({ fase: estado.fase, falta, mira: mira.x, resultado: jogada.resultado, tecnica: tiro && tiro.tecnica }),
+    estado: () => ({ fase: estado.fase, falta, mira: mira.x, resultado: jogada.resultado, tecnica: tiro && tiro.tecnica, gols: estado.gols, cobrancas: estado.cobrancas }),
     video: () => videoGol && { tamanho: videoGol.blob.size, tipo: videoGol.blob.type, nome: videoGol.nome },
     videoBlob: () => videoGol && videoGol.blob,
-    replay: () => ({ disponivel: gravador.disponivel, formato: gravador.formato, gravando: gravador.gravando }),
+    gravador: () => ({ disponivel: gravador.disponivel, formato: gravador.formato, gravando: gravador.gravando }),
+    replay: (gravar) => iniciarReplay({ gravar }),
+    emReplay: () => Boolean(replay),
+    registro: () => registro && { ...registro, cobrador: registro.cobrador.numero },
+    cruzamento: () => bola.cruzamento && { x: bola.cruzamento.x, y: bola.cruzamento.y },
   };
 }
 

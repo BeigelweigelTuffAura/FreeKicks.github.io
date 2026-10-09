@@ -1,7 +1,7 @@
 // Interface (HUD): cartão do cobrador, lista "Quem bate?", resultado, placar e botões do topo.
 // Só mexe na página (HTML); não sabe nada de 3D nem de física.
 
-import { overall } from './elenco.js?v=5';
+import { overall } from './elenco.js?v=6';
 
 const ATRIBUTOS = [
   ['FOR', 'Força'],
@@ -124,9 +124,11 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
       desenharCartao();
     },
     listaAberta: () => !lista.hidden,
-    mostrarFalta({ distancia, angulo }) {
+    // rival: nome do time cujas cores a barreira e o goleiro vestem (opcional)
+    mostrarFalta({ distancia, angulo }, rival = '') {
       const lado = angulo > 4 ? 'pela direita' : angulo < -4 ? 'pela esquerda' : 'frontal';
-      $('info').innerHTML = `Falta · <b>${Math.round(distancia)} m</b><br><small>${lado}</small>`;
+      const contra = rival ? ` · vs ${rival}` : '';
+      $('info').innerHTML = `Falta · <b>${Math.round(distancia)} m</b><br><small>${lado}${contra}</small>`;
     },
     mostrarPlacar(texto) {
       $('placar').textContent = texto;
@@ -146,6 +148,10 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
     },
     emJogo(sim) {
       hud.classList.toggle('em-jogo', sim);
+    },
+    // Replay: esconde os controles e mostra a etiqueta REPLAY
+    modoReplay(sim) {
+      hud.classList.toggle('replay', sim);
     },
     definirMudo(mudo) {
       botaoMudo.textContent = mudo ? '🔇' : '🔊';
