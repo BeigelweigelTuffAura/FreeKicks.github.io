@@ -161,14 +161,16 @@ Várias ligas, duelo entre jogadores, multiplayer, moedas, loja, anúncios, comp
 1. ~~Cena, bola e chute reto com força, publicado no link.~~ Feito.
 2. ~~Ponto de contato, física de curva e elevação, e painel de ajuste.~~ Feito.
 3. ~~Gol, trave, rede que estufa, detecção de gol e placar; câmera aérea depois do chute; estádio com arquibancadas e torcida.~~ Feito.
-4. Mira com imprecisão e controles de toque.
-5. Barreira e goleiro.
-6. Cobrador visível antes do chute (câmera atrás do jogador, como no PS2).
-7. Elenco Lendário: atributos, pé bom e cobrador sugerido.
-8. Modo Temporada: camisa, escalação, liga, tabela e especialista do banco. Treino livre e recorde.
-9. Acabamento: som, replay do golaço e nome da jogada.
+4. ~~Mira com imprecisão e controles de toque.~~ Feito (etapa 4).
+5. ~~Barreira e goleiro.~~ Feito (etapa 4: lógica; etapa 5: animação com passos, mergulho e queda).
+6. ~~Cobrador visível antes do chute (câmera atrás do jogador, como no PS2).~~ Feito (etapa 5: cada lenda com a sua postura e corrida).
+7. ~~Elenco Lendário: atributos, pé bom e cobrador sugerido.~~ Feito (cobrador sorteado a cada falta; a lista mostra o sugerido). Camisa do clube marcante de cada lenda; barreira e goleiro com as cores de um rival desse clube.
+8. Modo Temporada: escalação, liga, tabela e especialista do banco. Treino livre e recorde. (Próximo.)
+9. ~~Acabamento: som, replay do golaço e nome da jogada.~~ Feito (etapa 5: som sintetizado, rede de pano, câmera lenta, vídeo do gol para baixar/compartilhar).
 10. Rodada de ajuste fino jogando no celular.
 11. Depois: transformar em PWA para instalar na tela inicial do celular.
+
+Estado em 9/10/2026: publicado `v0.1 · etapa 5` (treino livre completo). Falta o Modo Temporada (item 8) e o ajuste fino (10).
 
 ## Critério de sucesso da v0.1
 

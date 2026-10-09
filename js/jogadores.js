@@ -2453,8 +2453,30 @@ export function posePadrao(t = 0) {
   };
 }
 
-// Cobrador parado atrás da bola, concentrado, esperando para correr. pe: 'D' ou 'E' (perna do chute).
-export function poseCobradorPronto(t = 0, pe = 'D') {
+// Jeitos de esperar atrás da bola (js/elenco.js, cobranca.postura): ajustes por cima da pose normal
+const POSTURAS = {
+  normal: {},
+  calmo: { tronco: { frente: 0.04 }, bracoE: { lado: 0.12, cotovelo: 0.2 }, bracoD: { lado: 0.12, cotovelo: 0.2 }, agachar: 0.03 },
+  concentrado: { tronco: { frente: 0.16 }, cabeca: { frente: 0.05 }, agachar: 0.08 },
+  ereto: { tronco: { frente: -0.02 }, cabeca: { frente: -0.16 }, pernaE: { frente: 0.04 }, pernaD: { frente: -0.06 }, agachar: 0.01 },
+  curvado: { tronco: { frente: 0.32 }, cabeca: { frente: 0.1 }, bracoE: { frente: 0.25, cotovelo: 0.6 }, bracoD: { frente: 0.2, cotovelo: 0.55 }, agachar: 0.1 },
+  agachado: {
+    tronco: { frente: 0.28 }, cabeca: { frente: 0 }, pernaE: { frente: 0.3, joelho: 0.6 }, pernaD: { frente: -0.1, joelho: 0.55 },
+    bracoE: { frente: 0.3, lado: 0.3, cotovelo: 0.9 }, bracoD: { frente: 0.3, lado: 0.3, cotovelo: 0.9 }, agachar: 0.22,
+  },
+  // Pernas bem abertas, peito estufado (o agachar extra compensa as pernas abertas, para os pés ficarem no chão)
+  pernasAbertas: {
+    tronco: { frente: -0.02 }, cabeca: { frente: -0.1 }, pernaE: { frente: 0, lado: 0.4, joelho: 0.06 }, pernaD: { frente: 0, lado: 0.4, joelho: 0.06 },
+    bracoE: { frente: 0.02, lado: 0.3, cotovelo: 0.25 }, bracoD: { frente: 0.02, lado: 0.3, cotovelo: 0.25 }, agachar: 0.3,
+  },
+  bracosAbertos: { tronco: { frente: 0.08 }, bracoE: { frente: -0.1, lado: 0.55, cotovelo: 0.3 }, bracoD: { frente: -0.1, lado: 0.55, cotovelo: 0.3 } },
+  // De lado para o gol: o corpo e a cabeça giram para olhar o gol por cima do ombro
+  lateral: { tronco: { frente: 0.06, giro: 0.3 }, cabeca: { giro: 0.4 }, bracoE: { lado: 0.15, cotovelo: 0.3 }, bracoD: { lado: 0.15, cotovelo: 0.3 }, pernaE: { frente: 0.05 }, pernaD: { frente: -0.05 }, agachar: 0.03 },
+};
+
+// Cobrador parado atrás da bola, concentrado, esperando para correr. pe: 'D' ou 'E' (perna do chute);
+// postura: um dos nomes de POSTURAS (o jeito de cada lenda).
+export function poseCobradorPronto(t = 0, pe = 'D', postura = 'normal') {
   const respira = Math.sin(t * 1.9);
   const p = {
     tronco: { frente: 0.1 + 0.012 * respira, lado: 0.02, giro: 0 },
@@ -2465,6 +2487,11 @@ export function poseCobradorPronto(t = 0, pe = 'D') {
     pernaD: { frente: -0.18, lado: 0.06, joelho: 0.12, tornozelo: 0.15 },
     agachar: 0.06 + 0.01 * respira,
   };
+  const extra = POSTURAS[postura] || POSTURAS.normal;
+  for (const [parte, valor] of Object.entries(extra)) {
+    if (typeof valor === 'number') p[parte] = valor + (parte === 'agachar' ? 0.01 * respira : 0);
+    else p[parte] = { ...p[parte], ...valor };
+  }
   return pe === 'E' ? espelhar(p) : p;
 }
 
@@ -2550,8 +2577,14 @@ const CHAVES_CHUTE = [
     agachar: 0.05,
   }],
 ];
-export function poseChute(progresso = 0, pe = 'D') {
-  const p = porChaves(CHAVES_CHUTE, limitar(progresso, 0, 1));
+// braco: 'aberto' abre o braço de equilíbrio (o contrário da perna do chute) durante o chute
+export function poseChute(progresso = 0, pe = 'D', braco = 'normal') {
+  let p = porChaves(CHAVES_CHUTE, limitar(progresso, 0, 1));
+  if (braco === 'aberto' && progresso > 0.2) {
+    const k = limitar((progresso - 0.2) / 0.2, 0, 1);
+    const b = p.bracoE;
+    p = { ...p, bracoE: { frente: b.frente - 0.15 * k, lado: Math.min(1.5, b.lado + 0.5 * k), cotovelo: b.cotovelo * (1 - 0.6 * k) } };
+  }
   return pe === 'E' ? espelhar(p) : p;
 }
 
@@ -2802,6 +2835,8 @@ export const PADRAO_COBRANCA = {
   corrida: 0.4,    // s correndo antes do último passo
   chute: 0.75,     // s do último passo até o fim da terminação (contato em 0,55 disso)
   cadencia: 1.6,   // ciclos de corrida por segundo (cada ciclo = dois passos)
+  postura: 'normal', // jeito de esperar atrás da bola (POSTURAS em poseCobradorPronto)
+  braco: 'normal',   // 'aberto': braço de equilíbrio aberto no chute
 };
 
 // Onde fica o peito do pé e o pé de apoio (no espaço do grupo) num momento do chute
@@ -2871,7 +2906,7 @@ export function criarCobranca(personagem, { bola, alvo = { x: 0, z: 0 }, pe = 'D
   function parado(t = 0) {
     g.position.set(inicio.x, 0, inicio.z);
     g.rotation.set(0, yawCorrida, 0);
-    personagem.aplicarPose(poseCobradorPronto(t, pe));
+    personagem.aplicarPose(poseCobradorPronto(t, pe, c.postura));
   }
 
   function atualizar(t) {
@@ -2881,7 +2916,7 @@ export function criarCobranca(personagem, { bola, alvo = { x: 0, z: 0 }, pe = 'D
     }
     if (t < c.corrida) {
       // Corrida: sai da pose de espera nos primeiros passos
-      const pose = misturarPoses(poseCobradorPronto(0, pe), poseCorrida(fase0 + c.cadencia * t), suave(t / 0.15));
+      const pose = misturarPoses(poseCobradorPronto(0, pe, c.postura), poseCorrida(fase0 + c.cadencia * t), suave(t / 0.15));
       personagem.aplicarPose(pose);
       const pos = noCaminho(t);
       g.position.set(pos.x, 0, pos.z);
@@ -2889,7 +2924,7 @@ export function criarCobranca(personagem, { bola, alvo = { x: 0, z: 0 }, pe = 'D
       return { etapa: 'corrida', progresso: 0, contato: false };
     }
     const p = limitar((t - c.corrida) / c.chute, 0, 1);
-    personagem.aplicarPose(poseChute(p, pe));
+    personagem.aplicarPose(poseChute(p, pe, c.braco));
     if (p < TEMPO_APOIO) {
       // Último passo: continua na linha da corrida e vira o corpo para a direção do chute
       const yaw = yawCorrida + (yawChute - yawCorrida) * suave(p / TEMPO_APOIO);

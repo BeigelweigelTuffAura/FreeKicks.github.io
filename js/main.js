@@ -1,17 +1,19 @@
 import * as THREE from 'three';
-import { CONFIG, VERSAO } from './config.js?v=4';
-import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=4';
-import { ELENCO, sugerirCobradores } from './elenco.js?v=4';
-import { criarCenario } from './estadio.js?v=4';
-import { montarBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=4';
-import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO } from './goleiro.js?v=4';
+import { CONFIG, VERSAO } from './config.js?v=5';
+import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=5';
+import { ELENCO, sugerirCobradores } from './elenco.js?v=5';
+import { criarCenario, PADRAO_CENARIO } from './estadio.js?v=5';
+import { montarBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=5';
+import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO } from './goleiro.js?v=5';
 import {
-  criarPersonagem, criarSombraBlob, criarCobranca, posicionarBarreira, posicionarGoleiro, PADRAO_COBRANCA,
+  criarPersonagem, criarSombraBlob, criarCobranca, PADRAO_COBRANCA,
   visualAdversario, VISUAL_GOLEIRO_ADVERSARIO, UNIFORMES, poseChute, poseComemoracao, poseLamento, misturarPoses,
-} from './jogadores.js?v=4';
-import { criarAudio, PADRAO_AUDIO } from './audio.js?v=4';
-import { criarInterface } from './interface.js?v=6';
-import { criarPainel } from './painel.js?v=4';
+} from './jogadores.js?v=5';
+import { criarAnimadorGoleiro, criarAnimadorBarreira } from './animacaoDefesa.js?v=5';
+import { criarAudio, PADRAO_AUDIO } from './audio.js?v=5';
+import { criarGravador, salvarVideo } from './replay.js?v=5';
+import { criarInterface } from './interface.js?v=5';
+import { criarPainel } from './painel.js?v=5';
 
 // Os padrões de goleiro, barreira, cobrador, som e cenário moram nos próprios módulos;
 // entram no CONFIG aqui (o que estiver escrito no config.js tem prioridade)
@@ -19,7 +21,7 @@ CONFIG.goleiro = { ...PADRAO_GOLEIRO, ...(CONFIG.goleiro || {}) };
 CONFIG.barreira = { ...PADRAO_BARREIRA, ...(CONFIG.barreira || {}) };
 CONFIG.cobrador = { ...PADRAO_COBRANCA, ...(CONFIG.cobrador || {}) };
 CONFIG.audio = { ...PADRAO_AUDIO, ...(CONFIG.audio || {}) };
-CONFIG.cenario = { festaSegura: 1.6, festaDuracao: 3, redeMola: 70, redeAmortecimento: 8, ...(CONFIG.cenario || {}) };
+CONFIG.cenario = { ...PADRAO_CENARIO, ...(CONFIG.cenario || {}) };
 
 const GRAUS = Math.PI / 180;
 const PASSO_FISICA = 1 / 240; // a física roda em passos pequenos e fixos, independente do celular
@@ -225,39 +227,32 @@ function uniformeDaLenda(jogador) {
   };
 }
 
-// Adversário genérico: escolhe a camisa que mais contrasta com a do cobrador
-const CAMISAS_ADVERSARIAS = [
-  { camisa: '#1d2a4d', calcao: '#ffffff', meiao: '#1d2a4d', numero: '#ffffff', gola: '#ffffff' },
-  { camisa: '#f3f3ef', calcao: '#1d2a4d', meiao: '#f3f3ef', numero: '#1d2a4d', gola: '#1d2a4d' },
-  { camisa: '#2f7d4a', calcao: '#ffffff', meiao: '#2f7d4a', numero: '#ffffff', gola: '#ffffff' },
-  { camisa: '#f08c00', calcao: '#1b1b1b', meiao: '#f08c00', numero: '#1b1b1b', gola: '#1b1b1b' },
-  { camisa: '#6b2d8f', calcao: '#ffffff', meiao: '#6b2d8f', numero: '#ffffff', gola: '#ffffff' },
-];
-
-function corRGB(hex) {
-  const n = parseInt(hex.replace('#', ''), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function distanciaDeCor(a, b) {
-  const [r1, g1, b1] = corRGB(a);
-  const [r2, g2, b2] = corRGB(b);
-  return Math.hypot(r1 - r2, g1 - g2, b1 - b2);
-}
+// Barreira e goleiro com as cores de um rival do clube do cobrador (só cores e padrões, sem escudo)
+const RIVAIS = {
+  'Barcelona': { nome: 'Real Madrid', padrao: 'liso', camisa: '#f4f4f4', cores: [], calcao: '#f4f4f4', meiao: '#f4f4f4', numero: '#1b1b1b', gola: '#1b1b1b' },
+  'Real Madrid': { nome: 'Barcelona', padrao: 'listras', camisa: '#a50044', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
+  'Milan': { nome: 'Inter', padrao: 'listras', camisa: '#0b2a8a', cores: ['#151515'], calcao: '#151515', meiao: '#151515', numero: '#ffffff', gola: '#151515' },
+  'Manchester United': { nome: 'Manchester City', padrao: 'liso', camisa: '#6cabdd', cores: [], calcao: '#f4f4f4', meiao: '#1c2c5b', numero: '#1c2c5b', gola: '#1c2c5b' },
+  'Flamengo': { nome: 'Vasco', padrao: 'diagonal', camisa: '#f4f4f4', cores: ['#151515'], calcao: '#151515', meiao: '#f4f4f4', numero: '#151515', gola: '#151515' },
+  'Vasco': { nome: 'Flamengo', padrao: 'aros', camisa: '#c4142b', cores: ['#151515'], calcao: '#f4f4f4', meiao: '#c4142b', numero: '#ffffff', gola: '#151515' },
+  'Botafogo': { nome: 'Flamengo', padrao: 'aros', camisa: '#c4142b', cores: ['#151515'], calcao: '#f4f4f4', meiao: '#c4142b', numero: '#ffffff', gola: '#151515' },
+  'São Paulo (goleiro)': { nome: 'Corinthians', padrao: 'liso', camisa: '#f4f4f4', cores: [], calcao: '#151515', meiao: '#f4f4f4', numero: '#151515', gola: '#151515' },
+  'Palmeiras': { nome: 'Corinthians', padrao: 'liso', camisa: '#f4f4f4', cores: [], calcao: '#151515', meiao: '#f4f4f4', numero: '#151515', gola: '#151515' },
+  'Santos': { nome: 'Palmeiras', padrao: 'liso', camisa: '#0a7a3f', cores: [], calcao: '#f4f4f4', meiao: '#0a7a3f', numero: '#ffffff', gola: '#ffffff' },
+  'Cruzeiro': { nome: 'Atlético-MG', padrao: 'listras', camisa: '#151515', cores: ['#f4f4f4'], calcao: '#151515', meiao: '#f4f4f4', numero: '#ffffff', gola: '#f4f4f4' },
+  'Vélez (goleiro)': { nome: 'San Lorenzo', padrao: 'listras', camisa: '#1b3f8f', cores: ['#8a1538'], calcao: '#151515', meiao: '#1b3f8f', numero: '#ffffff', gola: '#8a1538' },
+  'Lazio': { nome: 'Roma', padrao: 'liso', camisa: '#8e1b1b', cores: [], calcao: '#f4f4f4', meiao: '#8e1b1b', numero: '#f7c948', gola: '#f7c948' },
+  'Juventus': { nome: 'Torino', padrao: 'liso', camisa: '#7a1a2b', cores: [], calcao: '#f4f4f4', meiao: '#7a1a2b', numero: '#ffffff', gola: '#ffffff' },
+  'Liverpool': { nome: 'Everton', padrao: 'liso', camisa: '#1b3f8f', cores: [], calcao: '#f4f4f4', meiao: '#f4f4f4', numero: '#ffffff', gola: '#ffffff' },
+  'Brasil': { nome: 'Argentina', padrao: 'listras', camisa: '#f4f4f4', cores: ['#6cabdd'], calcao: '#151515', meiao: '#f4f4f4', numero: '#151515', gola: '#151515' },
+  'Argentina': { nome: 'Brasil', padrao: 'liso', camisa: '#f7d20a', cores: [], calcao: '#1b3f8f', meiao: '#f4f4f4', numero: '#0a7a3f', gola: '#0a7a3f' },
+  'Alemanha': { nome: 'Holanda', padrao: 'liso', camisa: '#f08c00', cores: [], calcao: '#f4f4f4', meiao: '#f08c00', numero: '#151515', gola: '#151515' },
+};
 
 function uniformeAdversario(jogador) {
-  const u = uniformeDaLenda(jogador);
-  const cores = [u.camisa, ...(u.cores || [])];
-  let melhor = CAMISAS_ADVERSARIAS[0];
-  let maior = -1;
-  for (const c of CAMISAS_ADVERSARIAS) {
-    const d = Math.min(...cores.map((cor) => distanciaDeCor(cor, c.camisa)));
-    if (d > maior) {
-      maior = d;
-      melhor = c;
-    }
-  }
-  return { ...UNIFORMES.adversario, ...melhor, listras: null };
+  const rival = jogador.uniforme && RIVAIS[jogador.uniforme.clube];
+  if (!rival) return { ...UNIFORMES.adversario };
+  return { ...UNIFORMES.adversario, ...rival, listras: rival.padrao === 'listras' ? rival.cores[0] : null, faixaMeiao: rival.calcao };
 }
 
 // ---------- Jogadores ----------
@@ -268,6 +263,8 @@ const sombraCobrador = criarSombraBlob(0.4);
 scene.add(sombraCobrador);
 let bonecosBarreira = [];
 let goleiroBoneco = null;
+let animGoleiro = null;   // animação do goleiro por cima da lógica (js/animacaoDefesa.js)
+let animBarreira = null;  // idem para a barreira
 const sombraGoleiro = criarSombraBlob(0.45);
 scene.add(sombraGoleiro);
 
@@ -284,8 +281,29 @@ function vestirCobrador(jogador) {
   });
   scene.add(cobradorBoneco.grupo);
   animacao = criarCobranca(cobradorBoneco, {
-    bola: { x: bola.pos.x, z: bola.pos.z }, alvo: { x: 0, z: 0 }, pe: jogador.pe, cfg: CONFIG,
+    bola: { x: bola.pos.x, z: bola.pos.z }, alvo: { x: 0, z: 0 }, pe: jogador.pe, cfg: configDaCobranca(jogador),
   });
+}
+
+// Cada lenda corre e se posiciona do seu jeito (js/elenco.js, campo cobranca): distância da corrida,
+// ângulo de aproximação, número de passos e ritmo viram os números que a animação entende
+function configDaCobranca(jogador) {
+  const c = jogador.cobranca;
+  if (!c) return CONFIG;
+  const cadencia = CONFIG.cobrador.cadencia * (c.ritmo || 1);
+  const passos = c.passos || 3;
+  return {
+    ...CONFIG,
+    cobrador: {
+      ...CONFIG.cobrador,
+      distancia: c.distancia ?? CONFIG.cobrador.distancia,
+      angulo: c.angulo ?? CONFIG.cobrador.angulo,
+      cadencia,
+      corrida: Math.max(0.2, passos / (2 * cadencia) - 0.3),
+      postura: c.postura || 'normal',
+      braco: c.braco || 'normal',
+    },
+  };
 }
 
 // Barreira e goleiro do time adversário (genéricos), refeitos a cada falta com a camisa que contrasta
@@ -304,12 +322,14 @@ function montarAdversarios() {
     scene.add(personagem.grupo, sombra);
     return { personagem, sombra };
   });
+  animBarreira = criarAnimadorBarreira(bonecosBarreira.map((b) => b.personagem), { semente: aleatorio(), diagnostico: false });
   if (!goleiroBoneco) {
     goleiroBoneco = criarPersonagem({ visual: VISUAL_GOLEIRO_ADVERSARIO, uniforme: UNIFORMES.goleiroAdversario, numero: 1, nome: '' });
     scene.add(goleiroBoneco.grupo);
+    animGoleiro = criarAnimadorGoleiro(goleiroBoneco, { semente: aleatorio(), diagnostico: false });
   }
   // O goleiro é o mesmo boneco: zera a memória dos passos para ele não "deslizar" da posição antiga
-  delete goleiroBoneco._goleiro;
+  animGoleiro.reiniciar();
 }
 
 // ---------- Câmera ----------
@@ -429,6 +449,18 @@ function zerarJogada() {
 }
 
 const audio = criarAudio(CONFIG);
+
+// Replay: grava a tela e o som durante a cobrança; o vídeo do gol fica guardado até a próxima cobrança
+const gravador = criarGravador({ canvas: renderer.domElement, audio });
+let videoGol = null; // { blob, nome } do último gol
+const botaoVideo = document.getElementById('botao-video');
+botaoVideo.addEventListener('click', async (e) => {
+  e.currentTarget.blur();
+  if (!videoGol) return;
+  botaoVideo.disabled = true;
+  await salvarVideo(videoGol.blob, videoGol.nome);
+  botaoVideo.disabled = false;
+});
 const ui = criarInterface({
   aoEscolherCobrador: (jogador) => escolherCobrador(jogador),
   aoAlternarMudo: () => {
@@ -573,6 +605,19 @@ elementos.contatoBola.addEventListener('pointerup', () => {
 // ---------- Nova cobrança ----------
 
 function novaCobranca() {
+  // Fecha a gravação da cobrança anterior: gol fica guardado para baixar, o resto é jogado fora
+  if (gravador.gravando) {
+    if (jogada.resultado === 'gol') {
+      const nome = `gol-${(cobrador.apelido || cobrador.nome).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      gravador.parar().then((blob) => {
+        if (!blob) return;
+        videoGol = { blob, nome };
+        botaoVideo.hidden = false;
+      });
+    } else {
+      gravador.descartar();
+    }
+  }
   if (!estado.fixa) falta = sortearFalta();
   bola = criarBola(posicaoDaFalta(falta));
   bolaMesh.quaternion.identity();
@@ -631,6 +676,9 @@ function soltarChute() {
   estado.fase = 'corrida';
   estado.tCobranca = 0;
   audio.torcidaTensao(animacao.tempoContato);
+  // Começa a gravar o replay (o botão do gol anterior some: a cobrança nova substitui o vídeo)
+  botaoVideo.hidden = true;
+  if (CONFIG.replay && gravador.disponivel) gravador.comecar();
 }
 
 // O pé encontra a bola: a física assume daqui
@@ -743,7 +791,9 @@ function processarEventos() {
       }
     } else if (ev.tipo === 'trave' || ev.tipo === 'travessao') {
       jogada.batida = ev.tipo;
-      audio.trave(Math.min(1, (ev.impacto || 20) / 25));
+      const forca = Math.min(1, (ev.impacto || 20) / 25);
+      audio.trave(forca);
+      cenario.trave(forca);
     } else if (ev.tipo === 'rede' && !bola.entrouNoGol) {
       if (!jogada.redeFora) audio.rede(0.4);
       jogada.redeFora = true;
@@ -870,16 +920,21 @@ function animarCobrador(t) {
   sombraCobrador.position.set(g.x, 0.012, g.z);
 }
 
-function animarAdversarios(t) {
+const infoDefesa = { fase: 'pronto', tempoDesdeChute: null, bola: null };
+function animarAdversarios(t, dt) {
+  infoDefesa.fase = estado.fase;
+  infoDefesa.tempoDesdeChute = estado.fase === 'corrida' ? estado.tCobranca - animacao.tempoContato
+    : (estado.fase === 'voo' || estado.fase === 'fim') ? estado.tempo : null;
+  infoDefesa.bola = bola;
+  animBarreira.atualizar(barreira, t, dt, infoDefesa);
+  animGoleiro.atualizar(goleiro, t, dt, infoDefesa);
   bonecosBarreira.forEach((b, i) => {
     const j = barreira.jogadores[i];
-    posicionarBarreira(b.personagem, j, t, i);
     b.sombra.position.set(j.x, 0.012, j.z);
     const escala = Math.max(0.45, 1 - (j.yPes || 0) * 1.2);
     b.sombra.scale.set(escala, escala, escala);
   });
   const p = goleiro.pose;
-  posicionarGoleiro(goleiroBoneco, p, t);
   const centro = p.centro || p;
   sombraGoleiro.position.set(centro.x, 0.012, p.z);
 }
@@ -892,9 +947,18 @@ const giroVisual = new THREE.Quaternion();
 function atualizarBolaNaTela(dt) {
   const { pos, giro } = bola;
   bolaMesh.position.set(pos.x, pos.y, pos.z);
-  // Longe da câmera (na aérea) a bola fica um pouco maior na tela, para o olho não perder
+  // Longe da câmera (na aérea) a bola fica um pouco maior na tela, para o olho não perder.
+  // Perto do gol ela volta ao tamanho de verdade, para não "furar" traves e rede.
   const longe = camera.position.distanceTo(bolaMesh.position) / CONFIG.camera.bolaVisivelAte;
-  bolaMesh.scale.setScalar(Math.min(CONFIG.camera.bolaAumentoMax, Math.max(1, longe)));
+  let escala = Math.min(CONFIG.camera.bolaAumentoMax, Math.max(1, longe));
+  const meiaGol = CONFIG.golLargura / 2;
+  const foraDoGol = Math.hypot(
+    Math.max(0, Math.abs(pos.x) - meiaGol),
+    Math.max(0, pos.y - CONFIG.golAltura),
+    Math.max(0, pos.z, -CONFIG.golProfundidade - pos.z)
+  );
+  escala = 1 + (escala - 1) * Math.min(1, Math.max(0, (foraDoGol - 1) / 3));
+  bolaMesh.scale.setScalar(escala);
 
   // Gira a bola na tela com o giro da física (mais devagar, para o olho acompanhar)
   eixoGiro.set(giro.x, giro.y, giro.z).multiplyScalar(GIRO_VISUAL);
@@ -1004,9 +1068,10 @@ function quadro() {
 
   if (estado.fase === 'pronto' || estado.fase === 'carregando') atualizarMira();
   animarCobrador(tempoTotal);
-  animarAdversarios(tempoTotal);
+  animarAdversarios(tempoTotal, dt);
   atualizarBolaNaTela(dt);
   atualizarCamera(dt);
+  cenario.rede.bola(bola.pos, CONFIG.raioBola * bolaMesh.scale.x); // a rede de pano envolve a bola desenhada
   cenario.atualizar(dt);
   audio.atualizar(dt);
   rastro.visivel = CONFIG.rastro;
@@ -1039,6 +1104,9 @@ if (MODO_TESTE) {
       soltarChute();
     },
     estado: () => ({ fase: estado.fase, falta, mira: mira.x, resultado: jogada.resultado, tecnica: tiro && tiro.tecnica }),
+    video: () => videoGol && { tamanho: videoGol.blob.size, tipo: videoGol.blob.type, nome: videoGol.nome },
+    videoBlob: () => videoGol && videoGol.blob,
+    replay: () => ({ disponivel: gravador.disponivel, formato: gravador.formato, gravando: gravador.gravando }),
   };
 }
 

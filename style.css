@@ -700,3 +700,28 @@ body {
 #botao-mudo[hidden] {
   display: none;
 }
+
+/* Botão para baixar ou compartilhar o replay do gol (aparece depois do gol, até a próxima cobrança) */
+#botao-video {
+  position: fixed;
+  left: 50%;
+  bottom: 34%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border: 2px solid #f7d84a;
+  border-radius: 999px;
+  background: rgba(10, 14, 24, 0.82);
+  color: #f7d84a;
+  font: 800 15px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  animation: aparecer 0.35s ease-out forwards;
+  touch-action: manipulation;
+}
+#botao-video:active {
+  transform: translateX(-50%) scale(0.96);
+}
+#botao-video[hidden] {
+  display: none;
+}

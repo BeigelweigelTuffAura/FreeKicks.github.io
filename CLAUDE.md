@@ -15,11 +15,21 @@ A especificação completa (escopo, mecânica, ordem de construção) está em `
 - Arquivos:
   - `js/config.js`: todos os números ajustáveis (`CONFIG`) e o rótulo `VERSAO` mostrado na tela.
   - `js/physics.js`: física da bola, sem dependência do Three.js (dá para rodar no Node).
-  - `js/main.js`: cena, câmera, controles, HUD e loop.
+  - `js/main.js`: cena, câmera, controles, loop, replay e a cola entre os módulos abaixo.
+  - `js/elenco.js`: as 22 lendas (atributos, pé, uniforme, jeito de cobrar, visual), `overall`, nota por falta e sugestão de cobrador.
+  - `js/interface.js`: HUD (cartão do cobrador, lista "Quem bate?", resultado, placar). Só mexe no HTML.
+  - `js/estadio.js`: gramado, gol, rede de pano (massa-mola), arquibancadas e torcida. `PADRAO_CENARIO`.
+  - `js/barreira.js` e `js/goleiro.js`: lógica (posição, pulo, reação, mergulho, colisão), sem desenho. `PADRAO_BARREIRA`, `PADRAO_GOLEIRO`.
+  - `js/jogadores.js`: bonecos (corpo, rosto, camisas por padrão), poses e a corrida/chute do cobrador (`criarCobranca`, posturas por lenda). `PADRAO_COBRANCA`.
+  - `js/animacaoDefesa.js`: desenho do goleiro e da barreira por cima da lógica (passos, mergulho, queda, gestos).
+  - `js/audio.js`: som sintetizado (sem arquivos). `PADRAO_AUDIO`.
+  - `js/replay.js`: grava a cobrança em vídeo (MediaRecorder) e baixa/compartilha o gol.
   - `js/painel.js`: painel de ajuste (sliders que mudam o `CONFIG` na hora). Todo número novo que afete a sensação do jogo ganha um slider aqui.
-  - `testes/fisica.mjs`: testes da física. Rodar com `node testes/fisica.mjs` antes de cada commit que mexa na física.
+  - Os `PADRAO_*` dos módulos entram no `CONFIG` quando o jogo abre (`js/main.js`); o que está escrito em `config.js` tem prioridade.
+  - `testes/fisica.mjs` e `testes/defesa.mjs`: testes no Node. Rodar `node testes/fisica.mjs` e `node testes/defesa.mjs` antes de cada commit que mexa na física, no goleiro ou na barreira. `testes/*.html` são páginas de inspeção visual.
 - Eixos: x = direita de quem cobra, y = para cima, z = do gol para quem cobra. Gol em z = 0, chute vai para z negativo.
 - **Cache:** a hospedagem guarda arquivos em cache por alguns minutos. A cada etapa publicada, aumente o número `?v=N` em todos os imports e links (`index.html` e `js/*.js`) e atualize `VERSAO`:
   `sed -i 's/?v=[0-9]*/?v=NOVO/g' index.html js/*.js`
 - Testar no celular real é obrigatório; o rótulo de versão no canto da tela confirma qual versão está carregada.
-- **Modo teste:** abrir com `?teste` no endereço faz cada quadro valer exatamente 1/60 s e expõe `window.tempoDeJogo`. Serve para capturas automáticas previsíveis (Playwright), mesmo com o navegador lento.
+- **Modo teste:** abrir com `?teste` no endereço faz cada quadro valer exatamente 1/60 s, fixa o sorteio e expõe `window.tempoDeJogo` e `window.jogoTeste` (falta, cobrador, contato, mira, chutar, estado, video). Serve para capturas automáticas previsíveis (Playwright), mesmo com o navegador lento.
+- O CDN do Three.js não abre dentro do ambiente de desenvolvimento na nuvem: os testes com Playwright interceptam o import e servem uma cópia local (`npm pack three@0.160.0`).

@@ -1,7 +1,7 @@
 // Todos os números ajustáveis do jogo ficam aqui.
 // Unidades: metros, segundos, graus.
 
-export const VERSAO = 'v0.1 · etapa 3';
+export const VERSAO = 'v0.1 · etapa 5';
 
 export const CONFIG = {
   // Mundo
@@ -118,6 +118,7 @@ export const CONFIG = {
   },
 
   rastro: true,           // pontinhos atrás da bola durante o voo, para ver a curva
+  replay: true,           // grava a cobrança em vídeo; depois de um gol dá para baixar ou compartilhar
 
   // Goleiro, barreira, cobrador, cenário e som: os padrões ficam nos próprios módulos
   // (PADRAO_GOLEIRO em js/goleiro.js, PADRAO_BARREIRA em js/barreira.js, PADRAO_COBRANCA em js/jogadores.js,

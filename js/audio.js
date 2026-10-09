@@ -1177,6 +1177,10 @@ export function criarAudio(cfg = null, opcoes = {}) {
     get contexto() {
       return ctx;
     },
+    // Nó de saída (volume geral): o replay liga aqui para gravar o som junto com o vídeo
+    get saida() {
+      return motor ? motor.saida : null;
+    },
     chute: tocar('chute'),
     quique: tocar('quique'),
     trave: tocar('trave'),

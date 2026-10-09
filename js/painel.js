@@ -80,6 +80,11 @@ const CAMPOS = [
   { chave: 'camera.aereaAproxima', rotulo: 'Aérea: quanto anda junto com a bola', min: 0, max: 0.9, passo: 0.05 },
   { chave: 'camera.aereaTransicao', rotulo: 'Aérea: tempo da troca de câmera (s, 0 = corte seco)', min: 0, max: 1.5, passo: 0.05 },
   { chave: 'rastro', rotulo: 'Rastro atrás da bola', tipo: 'liga' },
+  { chave: 'camera.cameraLenta', rotulo: 'Câmera lenta perto do gol', tipo: 'liga' },
+  { chave: 'camera.cameraLentaFator', rotulo: 'Câmera lenta: velocidade do tempo (1 = normal)', min: 0.1, max: 1, passo: 0.05 },
+  { chave: 'camera.cameraLentaDuracao', rotulo: 'Câmera lenta: duração (s de jogo)', min: 0.1, max: 1.5, passo: 0.05 },
+  { chave: 'camera.cameraLentaDistancia', rotulo: 'Câmera lenta: começa a quantos m do gol', min: 1, max: 10, passo: 0.5 },
+  { chave: 'replay', rotulo: 'Gravar o vídeo do gol (replay)', tipo: 'liga' },
 
   { secao: 'Som' },
   { chave: 'audio.volume', rotulo: 'Volume geral', min: 0, max: 1, passo: 0.05 },
