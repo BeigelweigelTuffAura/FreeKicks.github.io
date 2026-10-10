@@ -114,7 +114,9 @@ body {
   opacity: 0.9;
 }
 
-#botao-fixar {
+/* Pílulas pequenas da coluna da direita: falta fixa (treino) e ranking do dia (desafio) */
+#botao-fixar,
+#botao-ranking {
   pointer-events: auto;
   border: 1px solid rgba(255, 255, 255, 0.45);
   border-radius: 14px;
@@ -123,6 +125,8 @@ body {
   color: #fff;
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
+  touch-action: manipulation;
 }
 
 #botao-fixar.ativo {
@@ -134,8 +138,8 @@ body {
 /* Cartão do cobrador (toque para trocar) */
 #cartao-cobrador {
   pointer-events: auto;
-  max-width: 62%;
-  min-width: 190px;
+  max-width: 56%; /* sobra espaço para "Falta 1 do dia · 24 m" e o placar do desafio na coluna da direita */
+  min-width: 180px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 12px;
   padding: 7px 10px 6px;
@@ -517,8 +521,9 @@ body {
   opacity: 0.35;
 }
 
-/* Lista "Quem bate?" */
-#lista-cobradores {
+/* Folhas que sobem de baixo: lista "Quem bate?" e ranking do dia */
+#lista-cobradores,
+#ranking {
   pointer-events: auto;
   position: fixed;
   inset: 0;
@@ -529,11 +534,12 @@ body {
   text-shadow: none;
 }
 
-#lista-cobradores[hidden] {
+#lista-cobradores[hidden],
+#ranking[hidden] {
   display: none;
 }
 
-#lista-cobradores .folha {
+.folha {
   touch-action: pan-y;
   width: 100%;
   max-width: 520px;
@@ -697,11 +703,182 @@ body {
 /* Elementos que só aparecem quando o código novo os preenche */
 #cartao-cobrador:empty,
 #botao-fixar[hidden],
+#botao-ranking[hidden],
 #botao-mudo[hidden] {
   display: none;
 }
 
-/* Botões depois da cobrança: replay, gravar vídeo e salvar (ficam até o próximo chute) */
+/* Ranking do dia: bloco "Entrar no ranking", mensagem, lista e rodapé */
+#ranking-entrar {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(247, 216, 74, 0.45);
+  border-radius: 12px;
+  background: rgba(247, 216, 74, 0.08);
+}
+
+#ranking-melhor {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+#ranking-formulario {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* O campo do nome: o resto da tela bloqueia seleção e toque (html, body); aqui libera */
+#ranking-nome {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px; /* no iPhone, menor que 16px dá zoom na tela ao focar */
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  touch-action: manipulation;
+}
+
+#ranking-nome::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+#ranking-nome:focus {
+  outline: none;
+  border-color: #f7d84a;
+  box-shadow: 0 0 0 2px rgba(247, 216, 74, 0.3);
+}
+
+#ranking-enviar {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 800;
+  font-size: 14px;
+  white-space: nowrap;
+  background: #f7d84a;
+  color: #1b2a12;
+  touch-action: manipulation;
+}
+
+#ranking-enviar:disabled {
+  opacity: 0.6;
+}
+
+#ranking-aviso {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #ffb4b4;
+}
+
+#ranking-aviso[hidden] {
+  display: none;
+}
+
+#ranking-ja {
+  margin: 4px 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #4ade80;
+}
+
+#ranking-mensagem {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(247, 216, 74, 0.15);
+  color: #ffe58a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Cada linha do ranking: posição | nome (com reticências se for longo) | gols */
+.ranking-linha {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 15px;
+}
+
+.ranking-linha.meu {
+  border-color: #f7d84a;
+  background: rgba(247, 216, 74, 0.12);
+}
+
+.ranking-posicao {
+  font-size: 18px;
+  font-weight: 900;
+  font-style: italic;
+  text-align: center;
+  opacity: 0.8;
+}
+
+.ranking-posicao.ouro {
+  color: #f7d84a;
+  opacity: 1;
+}
+
+.ranking-posicao.prata {
+  color: #dfe4ea;
+  opacity: 1;
+}
+
+.ranking-posicao.bronze {
+  color: #d99a5b;
+  opacity: 1;
+}
+
+.ranking-nome {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ranking-linha.meu .ranking-nome {
+  font-weight: 700;
+}
+
+.ranking-gols {
+  font-weight: 800;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ranking-gols small {
+  margin-left: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.ranking-vazio {
+  padding: 18px 8px;
+  text-align: center;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.folha-rodape {
+  margin: 10px 2px 0;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* Botões depois da cobrança: replay, gravar vídeo, salvar e entrar no ranking (ficam até o próximo chute) */
 #acoes-jogada {
   position: fixed;
   left: 0;
@@ -709,7 +886,7 @@ body {
   top: 76.5%;
   transform: translateY(-100%); /* o bloco cresce para cima: a segunda linha não entra nos controles */
   display: flex;
-  flex-wrap: wrap; /* com três botões (Replay, Gravar vídeo, Compartilhar), o terceiro sobe de linha */
+  flex-wrap: wrap; /* com três botões (Replay, Gravar vídeo, Entrar no ranking), o terceiro sobe de linha */
   justify-content: center;
   gap: 8px;
   padding: 0 16px;

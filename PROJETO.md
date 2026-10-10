@@ -90,15 +90,20 @@ Em 10/10/2026, com amigos e família jogando pelo link, entraram dois modos pequ
 (botões no alto da tela; o jogo abre no último modo usado):
 
 - **Treino**: o de sempre (falta sorteada, botão de falta fixa).
-- **Desafio do Dia**: as mesmas faltas, na mesma ordem, para todo mundo no mesmo dia. A data vira a semente do
-  sorteio (falta, cobrador sugerido e até o erro da mira saem dela), então não precisa de servidor. Vale a maior
-  sequência de gols: errou, volta para a primeira falta do dia. A melhor sequência de hoje e o recorde ficam
-  salvos no aparelho. O botão **Compartilhar** monta um texto (nome, gols seguidos, link) para o grupo do
-  WhatsApp: o "ranking" é a conversa, no modelo do Wordle. A pressão (erro a mais; a frieza do cobrador corta
-  parte) cresce com a sequência, que é o lance decisivo deste jogo.
-  Uma tabela de ranking de verdade, entre celulares, exige guardar dados na internet (um serviço como Supabase
-  ou Firebase, com plano grátis, ou um servidor próprio). Decidido: só se o grupo pedir depois de usar o
-  compartilhar; e com a ressalva de que, rodando tudo no celular, qualquer um consegue mandar um número falso.
+- **Desafio do Dia** (só faltas): as mesmas faltas, na mesma ordem, para todo mundo no mesmo dia. A data vira a
+  semente do sorteio (falta, cobrador sugerido e até o erro da mira saem dela). Vale a maior sequência de gols:
+  errou, volta para a primeira falta do dia. A pressão (erro a mais; a frieza do cobrador corta parte) cresce
+  com a sequência, que é o lance decisivo deste jogo.
+  **Ranking do dia (etapa 8):** com pelo menos 2 gols seguidos, a pessoa digita o nome e a melhor sequência
+  dela vai para um ranking na internet, que todo mundo vê no jogo e que zera todo dia. Os dados ficam num
+  projeto **Supabase** (banco de dados na internet com plano grátis; o jogo fala com ele por endereço + chave
+  pública, em `config.js`, campo `ranking`; a tabela e as permissões estão em `ranking-supabase.sql`, para
+  colar no SQL Editor do projeto). Sem endereço e chave, o ranking fica desligado e a melhor
+  sequência fica só no aparelho. Ressalva aceita: como o jogo roda inteiro no celular, alguém com vontade
+  consegue mandar um número falso; para amigos e família, serve. O "Compartilhar" da etapa 7 saiu.
+  **Justiça:** no desafio o painel de ajuste fica trancado e os números do jogo voltam ao padrão (ninguém deixa
+  o goleiro fácil para bater o recorde); o goleiro do desafio é fixo e um pouco mais fraco que o do treino
+  (`config.js`, `desafio.goleiro`), para a sequência render.
 - **Pênaltis**: bola na marca, sem barreira, mesma mecânica de contato e força (pressão fixa). O goleiro decide
   antes do chute, com sorteio de semente (o replay repete): em 80% das vezes vai num canto; nos outros 20%
   fica e só pega bola fraca ou no meio. Antes da corrida ele faz "mind game": aponta um canto; quando vai,
@@ -112,9 +117,9 @@ informação nenhuma; o jogador ignora em duas tentativas. Por isso a dica é ve
 memória pune a repetição.
 
 **Câmera do replay (10/10/2026):** lateral, do lado direito de quem cobra, sempre o mesmo lado, com o gol à
-direita da tela, como no treino do PES de PS2. No celular em pé cobrador e gol não cabem juntos, então ela
-anda junto com a bola e olha para um ponto entre a bola e o gol, como a câmera lateral da TV. A câmera atrás do
-gol continua disponível no painel, para comparar.
+direita da tela, como no treino do PES de PS2: longe e de cima (24 m para o lado, 12 m de altura), andando um
+pouco junto com a bola e olhando para um ponto entre a bola e o gol. A câmera atrás do gol continua
+disponível no painel, para comparar.
 
 ~~Modo Temporada (tela inicial, escolha de camisa, escalação, liga de 8 times com 7 jogos de 3 faltas,
 especialista do banco, tabela e recorde)~~: **retirado do escopo**. Decisão de quem conduz o projeto: o jogo é
@@ -198,11 +203,13 @@ Várias ligas, duelo entre jogadores, multiplayer, moedas, loja, anúncios, comp
 9. ~~Acabamento: som, replay do golaço e nome da jogada.~~ Feito (etapa 5: som sintetizado, rede de pano, câmera lenta; etapa 6: replay com câmera atrás do gol e vídeo para salvar/compartilhar).
 10. Rodada de ajuste fino jogando no celular. (Em andamento: etapa 6 veio do primeiro teste no iPhone.)
 11. ~~Etapa 7: câmera lateral do replay, Desafio do Dia (com compartilhar) e modo Pênaltis.~~ Feito (10/10/2026).
-12. Depois: transformar em PWA para instalar na tela inicial do celular.
+12. ~~Etapa 8: ranking do dia na internet (Supabase), painel trancado no desafio, goleiro do desafio mais fraco,
+    câmera do replay mais longe e de cima.~~ Feito (10/10/2026); o ranking só liga quando o endereço e a chave
+    do Supabase entrarem em `config.js`.
+13. Depois: transformar em PWA para instalar na tela inicial do celular.
 
-Estado em 10/10/2026: publicado `v0.1 · etapa 7`. Amigos e família já jogam pelo link (o critério de sucesso
-da v0.1 está sendo cumprido na prática). Agora: ajuste fino dos três modos no celular, principalmente a câmera
-lateral e a sensação do goleiro de pênalti.
+Estado em 10/10/2026: publicado `v0.1 · etapa 8`. Amigos e família já jogam pelo link (o critério de sucesso
+da v0.1 está sendo cumprido na prática). Agora: ligar o ranking (conta Supabase) e ajuste fino no celular.
 
 Ideias anotadas (não construir sem combinar): tipos de rede para escolher (véu de noiva, caixote, triangular).
 A rede é uma simulação presa ao formato do gol e à física da bola na rede; trocar o formato é refazer essa parte.

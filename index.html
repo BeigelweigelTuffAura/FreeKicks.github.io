@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0d2b16">
   <title>Free Kick Legends</title>
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
   <!-- Three.js (biblioteca de 3D) em versão fixa, carregada de um CDN -->
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
@@ -36,6 +36,7 @@
         <div id="info"></div>
         <div id="placar"></div>
         <button id="botao-fixar" type="button" hidden>🎲 Falta sorteada</button>
+        <button id="botao-ranking" type="button" hidden>🏆 Ranking do dia</button>
       </div>
     </div>
     <div id="mensagem"></div>
@@ -49,7 +50,7 @@
       <button id="botao-replay" type="button" hidden>🔁 Replay</button>
       <button id="botao-video" type="button" hidden>🎬 Gravar vídeo</button>
       <button id="botao-salvar" type="button" hidden>📥 Salvar vídeo</button>
-      <button id="botao-compartilhar" type="button" hidden>📣 Compartilhar</button>
+      <button id="botao-entrar-ranking" type="button" hidden>🏆 Entrar no ranking</button>
     </div>
 
     <div id="controles">
@@ -75,6 +76,29 @@
       </div>
     </div>
 
+    <!-- Ranking do dia (Desafio do Dia): a melhor sequência de cada um, na internet -->
+    <div id="ranking" hidden>
+      <div class="folha">
+        <div class="folha-cabecalho">
+          <b id="ranking-titulo">🏆 Ranking do dia</b>
+          <button id="ranking-fechar" type="button">Fechar</button>
+        </div>
+        <p class="folha-explica">A maior sequência de gols seguidos de cada um no Desafio do Dia.</p>
+        <div id="ranking-entrar" hidden>
+          <p id="ranking-melhor">Sua melhor sequência de hoje: 0 gols</p>
+          <div id="ranking-formulario">
+            <input id="ranking-nome" type="text" placeholder="Seu nome" maxlength="24" autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="send" aria-label="Seu nome">
+            <button id="ranking-enviar" type="button">Entrar com 0 gols</button>
+          </div>
+          <small id="ranking-aviso" hidden>Escreva seu nome para entrar.</small>
+        </div>
+        <p id="ranking-ja" hidden></p>
+        <div id="ranking-mensagem" hidden></div>
+        <div id="ranking-lista"></div>
+        <p class="folha-rodape">O ranking zera todo dia à meia-noite. As faltas do dia são as mesmas para todo mundo.</p>
+      </div>
+    </div>
+
     <div id="painel" hidden>
       <div id="painel-cabecalho">
         <b>Painel de ajuste</b>
@@ -90,6 +114,6 @@
   </div>
 
   <noscript>Este jogo precisa de JavaScript ligado.</noscript>
-  <script type="module" src="js/main.js?v=7"></script>
+  <script type="module" src="js/main.js?v=8"></script>
 </body>
 </html>

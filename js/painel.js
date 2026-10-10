@@ -287,7 +287,8 @@ export function criarPainel({ config, versao, aoMudar }) {
     aviso.textContent = '';
   };
   // blur(): tira o foco do botão, para a barra de espaço do computador voltar a chutar
-  document.getElementById('botao-ajustes').addEventListener('click', (e) => {
+  const botaoAjustes = document.getElementById('botao-ajustes');
+  botaoAjustes.addEventListener('click', (e) => {
     e.currentTarget.blur();
     abrir(painel.hidden);
   });
@@ -295,4 +296,28 @@ export function criarPainel({ config, versao, aoMudar }) {
     e.currentTarget.blur();
     abrir(false);
   });
+
+  // Desafio do Dia: o painel fica trancado e os números que mudam o jogo voltam ao padrão (todo mundo joga
+  // igual; ninguém deixa o goleiro fácil para bater o recorde). Som, câmera e cenário continuam do jeito
+  // da pessoa. Ao destrancar, os ajustes salvos voltam.
+  const LIVRES = ['audio.', 'camera.', 'cenario.', 'rastro', 'video', 'mira.sensibilidade'];
+  const livre = (chave) => LIVRES.some((p) => chave === p || chave.startsWith(p));
+  function bloquear(sim) {
+    botaoAjustes.hidden = sim;
+    if (sim) abrir(false);
+    const salvo = lerSalvo(ARMAZENAMENTO);
+    for (const { entrada, valor, c } of entradas.values()) {
+      if (livre(c.chave)) continue;
+      let v = ler(padrao, c.chave);
+      if (!sim && salvo && salvo.versao === versao) {
+        const s = salvo.valores?.[c.chave];
+        if (typeof s === typeof v) v = s;
+      }
+      gravar(config, c.chave, v);
+      mostrarNaEntrada(c, entrada, v);
+      valor.textContent = formatar(c, v);
+    }
+  }
+
+  return { bloquear };
 }

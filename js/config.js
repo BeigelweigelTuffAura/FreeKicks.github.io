@@ -1,7 +1,7 @@
 // Todos os números ajustáveis do jogo ficam aqui.
 // Unidades: metros, segundos, graus.
 
-export const VERSAO = 'v0.1 · etapa 7';
+export const VERSAO = 'v0.1 · etapa 8';
 
 export const CONFIG = {
   // Mundo
@@ -93,12 +93,12 @@ export const CONFIG = {
     // à direita da tela, como no treino do PES de PS2. Acompanha a bola, porque no celular em pé não cabe
     // cobrador e gol de uma vez. Desligando `replayLateral`, volta a câmera atrás do gol (como na TV).
     replayLateral: true,
-    replayLateralDist: 13,    // m para o lado direito de quem cobra (contado a partir da bola)
-    replayLateralAltura: 3.5, // m do chão
-    replayLateralAlvo: 0.45,  // quanto o olhar vai da bola para o meio do gol quando a bola chega lá (0 = só a bola)
-    replayLateralLargura: 30, // graus de campo de visão horizontal (menos = mais zoom)
-    replayLateralSegue: 0.75, // quanto a câmera anda junto com a bola em direção ao gol (0 = parada, 1 = sempre ao lado da bola)
-    replayLateralFrente: 2,   // m que a câmera fica adiantada em relação à bola, na direção do gol
+    replayLateralDist: 24,    // m para o lado direito de quem cobra (contado a partir da bola): longe, como no treino do PES
+    replayLateralAltura: 12,  // m do chão (de cima)
+    replayLateralAlvo: 0.5,   // quanto o olhar vai da bola para o meio do gol quando a bola chega lá (0 = só a bola)
+    replayLateralLargura: 36, // graus de campo de visão horizontal (menos = mais zoom)
+    replayLateralSegue: 0.4,  // quanto a câmera anda junto com a bola em direção ao gol (0 = parada, 1 = sempre ao lado da bola)
+    replayLateralFrente: 4,   // m que a câmera fica adiantada em relação à bola, na direção do gol
     replayLado: 7,        // atrás do gol: m para o lado (do lado contrário ao canto em que a bola vai)
     replayAltura: 3.2,    // atrás do gol: m do chão
     replayAtras: 8,       // atrás do gol: m atrás da linha do gol
@@ -134,9 +134,25 @@ export const CONFIG = {
 
   // Desafio do Dia: as mesmas faltas, na mesma ordem, para todo mundo no mesmo dia (sorteio com a data
   // como semente). Vale a maior sequência de gols; errou, volta para a primeira falta do dia.
+  // No desafio o painel de ajuste fica trancado (todo mundo joga com os mesmos números) e o goleiro é
+  // um pouco mais fraco que o do treino, para a sequência render.
   desafio: {
-    pressaoPorGol: 0.1,   // a pressão (que aumenta o erro; a frieza do cobrador corta parte) cresce isso por gol seguido
-    pressaoMax: 1,        // teto da pressão
+    pressaoPorGol: 0.06,  // a pressão (que aumenta o erro; a frieza do cobrador corta parte) cresce isso por gol seguido
+    pressaoMax: 0.6,      // teto da pressão
+    minimoRanking: 2,     // gols seguidos para poder entrar no ranking do dia
+    goleiro: {            // por cima de PADRAO_GOLEIRO, só no desafio (não passa pelo painel)
+      reflexo: 0.34,
+      erroLeitura: 0.85,
+      percepcaoCurva: 0.5,
+    },
+  },
+
+  // Ranking do dia (Desafio do Dia): guardado num projeto Supabase (banco de dados na internet com
+  // acesso por endereço + chave pública). Vazio = ranking desligado; a melhor sequência fica só no aparelho.
+  ranking: {
+    url: '',              // ex.: 'https://abcdefgh.supabase.co'
+    chave: '',            // a chave "anon" (pública) do projeto
+    tabela: 'ranking',
   },
 
   // Pênaltis: bola na marca, sem barreira, goleiro que "adivinha" o canto. Os números do goleiro de pênalti

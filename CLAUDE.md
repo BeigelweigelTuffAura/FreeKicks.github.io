@@ -24,8 +24,9 @@ A especificação completa (escopo, mecânica, ordem de construção) está em `
   - `js/animacaoDefesa.js`: desenho do goleiro e da barreira por cima da lógica (passos, mergulho, queda, gestos).
   - `js/audio.js`: som sintetizado (sem arquivos). `PADRAO_AUDIO`.
   - `js/replay.js`: grava a cobrança em vídeo (MediaRecorder) e baixa/compartilha o gol.
-  - `js/painel.js`: painel de ajuste (sliders que mudam o `CONFIG` na hora). Todo número novo que afete a sensação do jogo ganha um slider aqui.
-  - Os `PADRAO_*` dos módulos entram no `CONFIG` quando o jogo abre (`js/main.js`); o que está escrito em `config.js` tem prioridade.
+  - `js/painel.js`: painel de ajuste (sliders que mudam o `CONFIG` na hora). Todo número novo que afete a sensação do jogo ganha um slider aqui. `bloquear(sim)`: no Desafio do Dia o painel some e os números do jogo voltam ao padrão (som, câmera e cenário ficam).
+  - `js/ranking.js`: ranking do dia na internet (Supabase por HTTP: `enviar`, `listar`), sem Three.js. Endereço e chave em `CONFIG.ranking`; vazios = desligado. Teste: `node testes/ranking.mjs`.
+  - Os `PADRAO_*` dos módulos entram no `CONFIG` quando o jogo abre (`js/main.js`); o que está escrito em `config.js` tem prioridade. No desafio, o goleiro usa `PADRAO_GOLEIRO` + `CONFIG.desafio.goleiro` (fixo, fora do painel): todo mundo enfrenta o mesmo goleiro.
   - `testes/fisica.mjs` e `testes/defesa.mjs`: testes no Node. Rodar `node testes/fisica.mjs` e `node testes/defesa.mjs` antes de cada commit que mexa na física, no goleiro ou na barreira. `testes/*.html` são páginas de inspeção visual.
 - Eixos: x = direita de quem cobra, y = para cima, z = do gol para quem cobra. Gol em z = 0, chute vai para z negativo.
 - **Replay = repetir a cobrança.** A física anda em passos fixos (`PASSO_FISICA`), e todo sorteio que afeta o lance vem de `sorteioDaJogada(n)` (montagem; n = 2 é a decisão do goleiro de pênalti) ou `sorteioChute` (chute e goleiro no voo), com sementes guardadas em `registro` (junto com o modo, a pressão e o histórico de pênaltis). Nunca use `Math.random`/`aleatorio` em algo que mude a bola, a barreira ou o goleiro depois do chute, senão o replay deixa de bater. No Desafio do Dia as sementes vêm de `sementeDoTexto(dia#índice#uso)`: mesma data, mesmas faltas para todo mundo.
