@@ -706,10 +706,13 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  top: 70.5%;
+  top: 76.5%;
+  transform: translateY(-100%); /* o bloco cresce para cima: a segunda linha não entra nos controles */
   display: flex;
+  flex-wrap: wrap; /* com três botões (Replay, Gravar vídeo, Compartilhar), o terceiro sobe de linha */
   justify-content: center;
   gap: 8px;
+  padding: 0 16px;
   pointer-events: none;
 }
 #acoes-jogada button {
@@ -762,4 +765,37 @@ body {
 @keyframes piscar {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
+}
+
+/* Modos de jogo: Treino, Desafio do Dia e Pênaltis (botões em pílula, logo abaixo do título) */
+#modos {
+  width: 100%;
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  transition: opacity 0.25s;
+}
+#modos button {
+  pointer-events: auto;
+  padding: 6px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+#modos button.ativo {
+  background: #f7d84a;
+  color: #1b2a12;
+  border-color: #f7d84a;
+}
+#hud.em-jogo #modos {
+  opacity: 0.35;
+}
+#hud.replay #modos {
+  display: none;
 }

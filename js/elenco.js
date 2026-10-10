@@ -264,9 +264,24 @@ export function notaParaFalta(jogador, { distancia, angulo }, pressao = 0) {
   return Math.round(nota * 10) / 10;
 }
 
-// Lista de cobradores do melhor para o pior para esta falta
+// Quão bom o cobrador é num pênalti: precisão e frieza mandam; a força ajuda (bola forte no canto não tem
+// defesa); curva e queda quase não contam (não há barreira para contornar).
+export function notaParaPenalti(jogador, pressao = 0.25) {
+  const a = jogador.atributos;
+  const pesos = { PRE: 0.45, FRI: 0.2 + 0.3 * pressao, FOR: 0.25, CUR: 0.05, QUE: 0.05 };
+  let soma = 0;
+  let total = 0;
+  for (const chave of Object.keys(pesos)) {
+    soma += pesos[chave] * a[chave];
+    total += pesos[chave];
+  }
+  return Math.round((soma / total) * 10) / 10;
+}
+
+// Lista de cobradores do melhor para o pior para esta falta (ou para o pênalti, com falta.penalti)
 export function sugerirCobradores(jogadores, falta, pressao = 0) {
+  const nota = (jogador) => (falta && falta.penalti ? notaParaPenalti(jogador, pressao) : notaParaFalta(jogador, falta, pressao));
   return jogadores
-    .map((jogador) => ({ jogador, nota: notaParaFalta(jogador, falta, pressao) }))
+    .map((jogador) => ({ jogador, nota: nota(jogador) }))
     .sort((a, b) => b.nota - a.nota);
 }

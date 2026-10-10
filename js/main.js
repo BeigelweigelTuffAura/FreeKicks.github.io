@@ -1,23 +1,24 @@
 import * as THREE from 'three';
-import { CONFIG, VERSAO } from './config.js?v=6';
-import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=6';
-import { ELENCO, sugerirCobradores } from './elenco.js?v=6';
-import { criarCenario, PADRAO_CENARIO } from './estadio.js?v=6';
-import { montarBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=6';
-import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO } from './goleiro.js?v=6';
+import { CONFIG, VERSAO } from './config.js?v=7';
+import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=7';
+import { ELENCO, sugerirCobradores } from './elenco.js?v=7';
+import { criarCenario, PADRAO_CENARIO } from './estadio.js?v=7';
+import { montarBarreira, semBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=7';
+import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO, PADRAO_PENALTI } from './goleiro.js?v=7';
 import {
   criarPersonagem, criarSombraBlob, criarCobranca, PADRAO_COBRANCA,
   visualAdversario, VISUAL_GOLEIRO_ADVERSARIO, UNIFORMES, poseChute, poseComemoracao, poseLamento, misturarPoses,
-} from './jogadores.js?v=6';
-import { criarAnimadorGoleiro, criarAnimadorBarreira } from './animacaoDefesa.js?v=6';
-import { criarAudio, PADRAO_AUDIO } from './audio.js?v=6';
-import { criarGravador, salvarVideo } from './replay.js?v=6';
-import { criarInterface } from './interface.js?v=6';
-import { criarPainel } from './painel.js?v=6';
+} from './jogadores.js?v=7';
+import { criarAnimadorGoleiro, criarAnimadorBarreira } from './animacaoDefesa.js?v=7';
+import { criarAudio, PADRAO_AUDIO } from './audio.js?v=7';
+import { criarGravador, salvarVideo } from './replay.js?v=7';
+import { criarInterface } from './interface.js?v=7';
+import { criarPainel } from './painel.js?v=7';
 
 // Os padrões de goleiro, barreira, cobrador, som e cenário moram nos próprios módulos;
 // entram no CONFIG aqui (o que estiver escrito no config.js tem prioridade)
 CONFIG.goleiro = { ...PADRAO_GOLEIRO, ...(CONFIG.goleiro || {}) };
+CONFIG.penalti = { ...PADRAO_PENALTI, ...(CONFIG.penalti || {}) };
 CONFIG.barreira = { ...PADRAO_BARREIRA, ...(CONFIG.barreira || {}) };
 CONFIG.cobrador = { ...PADRAO_COBRANCA, ...(CONFIG.cobrador || {}) };
 CONFIG.audio = { ...PADRAO_AUDIO, ...(CONFIG.audio || {}) };
@@ -56,6 +57,34 @@ let sementeJogada = 0;
 // Um sorteio independente para cada uso (n = 0, 1, 2...), para a ordem das chamadas não importar
 const sorteioDaJogada = (n) => criarSorteio((sementeJogada + n * 0.6180339887) % 1);
 let sorteioChute = aleatorio; // erro da mira e goleiro durante o voo (semente sorteada no chute)
+
+// Semente a partir de um texto (hash FNV-1a): no Desafio do Dia, a data vira a semente, e todo mundo
+// recebe as mesmas faltas na mesma ordem
+function sementeDoTexto(texto) {
+  let h = 2166136261;
+  for (const ch of texto) {
+    h ^= ch.codePointAt(0);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967296;
+}
+
+// Guardado no aparelho (recordes, desafio do dia, nome, modo): sem armazenamento, vale só até fechar a página
+function lerSalvo(chave, padrao) {
+  try {
+    const v = JSON.parse(localStorage.getItem(chave));
+    return v ?? padrao;
+  } catch {
+    return padrao;
+  }
+}
+function salvar(chave, valor) {
+  try {
+    localStorage.setItem(chave, JSON.stringify(valor));
+  } catch {
+    // Sem armazenamento (aba anônima, por exemplo)
+  }
+}
 
 // ---------- Renderizador, cena e cenário ----------
 
@@ -216,7 +245,7 @@ function atualizarMira() {
 
   // Largura da faixa: ±1,5 desvio padrão do erro na distância do gol
   const forca = estado.fase === 'carregando' ? Math.max(estado.carga, 0.3) : CONFIG.forcaIdeal;
-  const sigma = coneDeErro({ forca, contato, cobrador, pressao: 0 }, CONFIG);
+  const sigma = coneDeErro({ forca, contato, cobrador, pressao: pressaoAtual() }, CONFIG);
   const distancia = Math.hypot(mira.x - bola.pos.x, bola.pos.z);
   const largura = Math.max(0.2, 2 * distancia * Math.tan(1.5 * sigma * GRAUS));
   faixaErro.scale.x = largura;
@@ -415,7 +444,34 @@ function posicionarCamera() {
   misturaAerea = 0;
 }
 
-// Câmera do replay: atrás do gol, baixa, do lado contrário ao canto em que a bola vai (como na TV).
+// Câmera do replay lateral: do lado direito de quem cobra, sempre o mesmo lado, com o gol à direita da
+// tela (como no treino do PES de PS2). No celular em pé cobrador e gol não cabem juntos, então ela anda
+// junto com a bola, um pouco adiantada, e olha para um ponto entre a bola e o gol, como a câmera lateral
+// da TV. O zoom compensa a distância: falta pela esquerda fica mais longe da câmera e ganha mais zoom.
+function poseReplayLateral(inicio) {
+  const c = CONFIG.camera;
+  const x = Math.max(0, inicio.x) + c.replayLateralDist;
+  // Ao lado da bola (nunca atrás da linha do gol), adiantada na direção do gol
+  const zBola = Math.max(0, Math.min(inicio.z, bola.pos.z));
+  const z = Math.max(-1, inicio.z + (zBola - inicio.z) * c.replayLateralSegue - c.replayLateralFrente);
+  const pos = new THREE.Vector3(x, c.replayLateralAltura, z);
+  // Olha para a bola (no começo, o cobrador e a bola); conforme a bola se aproxima do gol, puxa o olhar
+  // para o meio do gol. A bola que passa por cima ou sai pelo lado não leva a câmera para a arquibancada.
+  const centroGol = new THREE.Vector3(0, 1.2, 0);
+  const chegada = 1 - Math.max(0, Math.min(1, zBola / Math.max(1, inicio.z)));
+  const olhar = new THREE.Vector3(
+    Math.max(-6, Math.min(6, bola.pos.x)),
+    Math.min(3.2, bola.pos.y + 0.2),
+    Math.max(-1.5, bola.pos.z)
+  ).lerp(centroGol, c.replayLateralAlvo * chegada);
+  // Zoom: a bola fica do mesmo tamanho na tela, esteja a falta perto ou longe da câmera. Mais aberta no
+  // começo (a corrida do cobrador cabe) e um pouco mais fechada quando a bola chega no gol.
+  const d = Math.max(3, pos.distanceTo(olhar));
+  const larguraVisivel = c.replayLateralLargura * (1.15 - 0.25 * chegada) * Math.min(1.5, Math.max(0.35, c.replayLateralDist / d));
+  return { pos, olhar, larguraVisivel };
+}
+
+// Câmera do replay atrás do gol: baixa, do lado contrário ao canto em que a bola vai (como na TV).
 // Começa olhando para o cobrador e vai acompanhando a bola.
 function poseReplay() {
   const c = CONFIG.camera;
@@ -431,9 +487,10 @@ function poseReplay() {
 }
 
 // Campo de visão a partir da largura visível (graus na horizontal), respeitando o mínimo vertical
-function fovParaLargura(larguraVisivel) {
+// (o replay lateral pode fechar mais o zoom, para a falta do outro lado do campo não ficar minúscula)
+function fovParaLargura(larguraVisivel, minimo = CONFIG.camera.fovMin) {
   const fov = 2 * Math.atan(Math.tan((larguraVisivel * GRAUS) / 2) / camera.aspect) / GRAUS;
-  return Math.max(CONFIG.camera.fovMin, fov);
+  return Math.max(minimo, fov);
 }
 
 // Câmera aérea: alta e de lado (diagonal), olhando para um ponto entre a bola e o gol.
@@ -472,14 +529,19 @@ function atualizarCamera(dt) {
     olharAlvo.x += (bola.pos.x - inicio.x) * c.seguir;
   }
 
-  // No replay a câmera é outra: atrás do gol, parada, só acompanhando a bola com o olhar
+  // No replay a câmera é outra: lateral (acompanha a bola) ou atrás do gol (parada, só olhando a bola)
   if (replay) {
-    const rp = poseReplay();
-    camera.position.copy(rp.pos);
-    olharAtual.lerp(rp.olhar, 1 - Math.exp(-dt * 7));
+    const rp = c.replayLateral ? poseReplayLateral(inicio) : poseReplay();
+    // Primeiro quadro do replay: corte seco para a câmera nova; depois ela desliza atrás da bola
+    const corte = !replay.cameraPronta;
+    replay.cameraPronta = true;
+    camera.position.lerp(rp.pos, corte || !c.replayLateral ? 1 : 1 - Math.exp(-dt * 6));
+    if (corte) olharAtual.copy(rp.olhar);
+    else olharAtual.lerp(rp.olhar, 1 - Math.exp(-dt * 7));
     camera.lookAt(olharAtual);
     if (estado.fase !== 'fim') {
-      camera.fov += (fovParaLargura(rp.larguraVisivel) - camera.fov) * (1 - Math.exp(-dt * 4));
+      const fovAlvo = fovParaLargura(rp.larguraVisivel, c.replayLateral ? 20 : c.fovMin);
+      camera.fov += (fovAlvo - camera.fov) * (corte ? 1 : 1 - Math.exp(-dt * 4));
       camera.updateProjectionMatrix();
     }
     misturaAerea = 0;
@@ -524,7 +586,61 @@ ajustarTela();
 const estado = {
   fase: 'pronto', carga: 0, forca: 0, tempo: 0, espera: 0, tCobranca: 0, tFim: 0,
   gols: 0, cobrancas: 0, sequencia: 0, fixa: false,
+  modo: 'treino', // 'treino' (falta sorteada) | 'desafio' (Desafio do Dia) | 'penalti'
 };
+const MODOS = ['treino', 'desafio', 'penalti'];
+const FALTA_PENALTI = { distancia: 11, angulo: 0, penalti: true };
+// Desafio do Dia: a falta de número `indice` (0 = a primeira) do dia `dia`. Vale a maior sequência de gols;
+// errou, volta para a primeira falta do dia. A melhor sequência de hoje fica salva no aparelho.
+const desafio = { dia: '', indice: 0, melhorHoje: 0, tentativas: 0, falta: null, cobrador: null, sementeJogada: 0, sementeChute: 0 };
+// Recorde de sequência de gols em cada modo, salvo no aparelho
+const recordes = { treino: 0, desafio: 0, penalti: 0 };
+for (const [modo, v] of Object.entries(lerSalvo('fkl-recordes', {}))) if (modo in recordes && Number.isFinite(v)) recordes[modo] = v;
+// Pênaltis: lado em que a bola cruzou a linha nas últimas cobranças (o goleiro tem memória e vai mais
+// para o lado em que você insiste)
+let historicoPenaltis = [];
+
+// Data de hoje no formato 2026-10-10 (no modo teste, sempre o mesmo dia, para as capturas serem previsíveis)
+function diaDeHoje() {
+  if (MODO_TESTE) return '2026-10-10';
+  const d = new Date();
+  const dois = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`;
+}
+
+// Monta a falta de hoje de número desafio.indice: falta, cobrador sugerido e as sementes do lance saem de
+// sorteios com a data como semente, então todo mundo recebe o mesmo desafio no mesmo dia
+function prepararDesafio() {
+  const dia = diaDeHoje();
+  if (desafio.dia !== dia) {
+    const salvo = lerSalvo('fkl-desafio', null);
+    const mesmoDia = salvo && salvo.dia === dia;
+    desafio.dia = dia;
+    desafio.indice = 0;
+    desafio.melhorHoje = mesmoDia && Number.isFinite(salvo.melhor) ? salvo.melhor : 0;
+    desafio.tentativas = mesmoDia && Number.isFinite(salvo.tentativas) ? salvo.tentativas : 0;
+    // Virou o dia no meio do jogo: o desafio novo começa do zero
+    estado.sequencia = 0;
+    estado.gols = 0;
+    estado.cobrancas = 0;
+  }
+  const semente = (uso) => sementeDoTexto(`${dia}#${desafio.indice}#${uso}`);
+  desafio.falta = sortearFalta(criarSorteio(semente('falta')));
+  desafio.cobrador = ELENCO[Math.floor(criarSorteio(semente('cobrador'))() * ELENCO.length)];
+  desafio.sementeJogada = semente('jogada');
+  desafio.sementeChute = semente('chute');
+}
+function salvarDesafio() {
+  salvar('fkl-desafio', { dia: desafio.dia, melhor: desafio.melhorHoje, tentativas: desafio.tentativas });
+}
+
+// Pressão do lance (aumenta o erro; a frieza do cobrador corta parte): zero no treino, cresce com a
+// sequência no Desafio do Dia e é fixa no pênalti
+function pressaoAtual() {
+  if (estado.modo === 'penalti') return CONFIG.penalti.pressao || 0;
+  if (estado.modo === 'desafio') return Math.min(CONFIG.desafio.pressaoMax, estado.sequencia * CONFIG.desafio.pressaoPorGol);
+  return 0;
+}
 let falta = { distancia: CONFIG.falta.distancia, angulo: CONFIG.falta.angulo };
 let bola;
 let barreira;
@@ -553,7 +669,12 @@ const botoes = {
   replay: document.getElementById('botao-replay'),
   video: document.getElementById('botao-video'),
   salvar: document.getElementById('botao-salvar'),
+  compartilhar: document.getElementById('botao-compartilhar'),
 };
+botoes.compartilhar.addEventListener('click', (e) => {
+  e.currentTarget.blur();
+  compartilharDesafio();
+});
 botoes.replay.addEventListener('click', (e) => {
   e.currentTarget.blur();
   iniciarReplay({ gravar: false });
@@ -579,6 +700,56 @@ function mostrarAcoes() {
   botoes.replay.hidden = !pode;
   botoes.video.hidden = !(pode && CONFIG.video && gravador.disponivel && !videoGol);
   botoes.salvar.hidden = !(pode && videoGol);
+  const parado = estado.fase === 'fim' || estado.fase === 'pronto';
+  botoes.compartilhar.hidden = !(estado.modo === 'desafio' && !replay && parado && desafio.melhorHoje > 0);
+}
+
+// ---------- Desafio do Dia: compartilhar ----------
+
+// Nome de quem joga, só para o texto compartilhado (pedido uma vez e guardado no aparelho)
+function nomeDoJogador() {
+  let nome = lerSalvo('fkl-nome', '');
+  if (typeof nome !== 'string') nome = '';
+  if (!nome && !MODO_TESTE) {
+    nome = (window.prompt('Seu nome, para aparecer no resultado que você vai mandar para o grupo:', '') || '').trim().slice(0, 24);
+    if (nome) salvar('fkl-nome', nome);
+  }
+  return nome;
+}
+
+// O "ranking" é a conversa do grupo: sem servidor, cada um manda o próprio resultado (como no Wordle)
+function textoDoDesafio() {
+  const [, mes, dia] = desafio.dia.split('-');
+  const nome = nomeDoJogador();
+  const quem = nome ? `${nome}: ` : '';
+  const gols = desafio.melhorHoje;
+  const linhas = [
+    `⚽ Free Kick Legends · Desafio do Dia ${dia}/${mes}`,
+    `🔥 ${quem}${gols} ${gols === 1 ? 'gol seguido' : 'gols seguidos'}`,
+  ];
+  if (recordes.desafio > gols) linhas.push(`🏆 Meu recorde: ${recordes.desafio}`);
+  linhas.push('As mesmas faltas para todo mundo. Consegue passar?', location.origin + location.pathname);
+  return linhas.join('\n');
+}
+
+async function compartilharDesafio() {
+  if (desafio.melhorHoje <= 0) return;
+  const texto = textoDoDesafio();
+  try {
+    if (navigator.share) {
+      await navigator.share({ text: texto });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    // Sem a janela de compartilhar: copia o texto
+  }
+  try {
+    await navigator.clipboard.writeText(texto);
+    ui.mostrarMensagem('Resultado copiado: cole no grupo');
+  } catch {
+    ui.mostrarMensagem('Não consegui compartilhar neste navegador');
+  }
 }
 
 const ui = criarInterface({
@@ -592,6 +763,7 @@ const ui = criarInterface({
     estado.fixa = !estado.fixa;
     ui.definirFixar(estado.fixa);
   },
+  aoTrocarModo: (modo) => trocarModo(modo),
 });
 ui.definirMudo(audio.mudo);
 ui.definirFixar(estado.fixa);
@@ -621,12 +793,13 @@ function posicaoDaFalta({ distancia, angulo }) {
   };
 }
 
-// Falta sorteada: de várias distâncias e ângulos, sempre fora da grande área
-function sortearFalta() {
+// Falta sorteada: de várias distâncias e ângulos, sempre fora da grande área.
+// sorteio: função de 0 a 1 (no Desafio do Dia, com a data como semente)
+function sortearFalta(sorteio = aleatorio) {
   const s = CONFIG.sorteio;
   for (let i = 0; i < 50; i++) {
-    const distancia = Math.round(s.distanciaMin + aleatorio() * (s.distanciaMax - s.distanciaMin));
-    const angulo = Math.round((aleatorio() * 2 - 1) * s.anguloMax);
+    const distancia = Math.round(s.distanciaMin + sorteio() * (s.distanciaMax - s.distanciaMin));
+    const angulo = Math.round((sorteio() * 2 - 1) * s.anguloMax);
     const p = posicaoDaFalta({ distancia, angulo });
     const foraDaArea = p.z > 17 || Math.abs(p.x) > 20.5;
     if (foraDaArea && Math.abs(p.x) < 17) return { distancia, angulo };
@@ -635,19 +808,45 @@ function sortearFalta() {
 }
 
 function placar() {
+  const recorde = recordes[estado.modo] ? ` · recorde ${recordes[estado.modo]}` : '';
+  if (estado.modo === 'desafio') return `Sequência ${estado.sequencia} · melhor hoje ${desafio.melhorHoje}${recorde}`;
   const seq = estado.sequencia >= 2 ? ` · sequência ${estado.sequencia}` : '';
-  return estado.cobrancas ? `Gols: ${estado.gols} de ${estado.cobrancas}${seq}` : '';
+  return estado.cobrancas ? `Gols: ${estado.gols} de ${estado.cobrancas}${seq}${recorde}` : '';
+}
+
+// Troca o modo de jogo: zera o placar da sessão (o recorde fica) e monta a próxima cobrança
+function trocarModo(modo) {
+  if (!MODOS.includes(modo) || modo === estado.modo) return;
+  if (estado.fase === 'carregando' || estado.fase === 'corrida') return;
+  if (replay) pularReplay(false);
+  estado.modo = modo;
+  estado.gols = 0;
+  estado.cobrancas = 0;
+  estado.sequencia = 0;
+  estado.fixa = false;
+  desafio.indice = 0; // o Desafio do Dia recomeça da primeira falta (a melhor sequência de hoje fica)
+  ui.definirFixar(false);
+  ui.definirModo(modo);
+  salvar('fkl-modo', modo);
+  ui.mostrarPlacar(placar());
+  novaCobranca();
+}
+
+// Falta, pênalti ou "falta N do dia", com o rival
+function mostrarInfoFalta() {
+  const modo = replay ? registro.modo : estado.modo;
+  ui.mostrarFalta(falta, nomeDoRival(cobrador), modo === 'desafio' ? desafio.indice + 1 : 0);
 }
 
 // ---------- Cobrador ----------
 
 function escolherCobrador(jogador) {
   if (estado.fase !== 'pronto') return;
-  const lista = sugerirCobradores(ELENCO, falta);
+  const lista = sugerirCobradores(ELENCO, falta, pressaoAtual());
   const item = lista.find((x) => x.jogador === jogador) || lista[0];
   cobrador = item.jogador;
   ui.mostrarCobrador(cobrador, item.nota, lista);
-  ui.mostrarFalta(falta, nomeDoRival(cobrador));
+  mostrarInfoFalta();
   vestirCobrador(cobrador);
   montarAdversarios();
   posicionarCamera();
@@ -728,17 +927,31 @@ elementos.contatoBola.addEventListener('pointerup', () => {
 function novaCobranca() {
   if (gravador.gravando) gravador.descartar(); // só o replay grava; se sobrou algo ligado, joga fora
   const emReplay = Boolean(replay);
+  const modo = emReplay ? registro.modo : estado.modo;
   if (emReplay) {
     falta = { ...registro.falta };
     cobrador = registro.cobrador;
+  } else if (modo === 'penalti') {
+    falta = { ...FALTA_PENALTI };
+  } else if (modo === 'desafio') {
+    prepararDesafio();
+    falta = { ...desafio.falta };
   } else if (!estado.fixa) {
     falta = sortearFalta();
   }
-  sementeJogada = emReplay ? registro.sementeJogada : aleatorio();
+  sementeJogada = emReplay ? registro.sementeJogada : modo === 'desafio' ? desafio.sementeJogada : aleatorio();
   bola = criarBola(posicaoDaFalta(falta));
   bolaMesh.quaternion.identity();
-  barreira = montarBarreira(bola.pos, CONFIG, sorteioDaJogada(0));
-  goleiro = criarGoleiro(bola.pos, barreira, CONFIG);
+  if (modo === 'penalti') {
+    // Sem barreira; o goleiro decide o canto já aqui (sorteio com semente, para o replay repetir), olhando
+    // para onde você bateu os últimos pênaltis
+    barreira = semBarreira(bola.pos);
+    const historico = emReplay ? registro.historico || [] : historicoPenaltis;
+    goleiro = criarGoleiro(bola.pos, null, CONFIG, { penalti: { historico: [...historico], aleatorio: sorteioDaJogada(2) } });
+  } else {
+    barreira = montarBarreira(bola.pos, CONFIG, sorteioDaJogada(0));
+    goleiro = criarGoleiro(bola.pos, barreira, CONFIG);
+  }
   estado.fase = 'pronto';
   estado.carga = 0;
   estado.tempo = 0;
@@ -757,12 +970,15 @@ function novaCobranca() {
   // Mira começa no lado do gol que a barreira não cobre
   mira.x = -barreira.lado * 1.9;
 
-  // Cobrador sorteado a cada falta (com a falta fixa, mantém a escolha); a lista mostra o sugerido
-  const lista = sugerirCobradores(ELENCO, falta);
-  if (!emReplay && (!cobrador || !estado.fixa)) cobrador = ELENCO[Math.floor(aleatorio() * ELENCO.length)];
+  // Cobrador sorteado a cada falta (com a falta fixa, mantém a escolha; no Desafio do Dia é o do dia);
+  // a lista mostra o sugerido
+  const lista = sugerirCobradores(ELENCO, falta, pressaoAtual());
+  if (!emReplay && (!cobrador || !estado.fixa || modo !== 'treino')) {
+    cobrador = modo === 'desafio' ? desafio.cobrador : ELENCO[Math.floor(aleatorio() * ELENCO.length)];
+  }
   const nota = lista.find((x) => x.jogador === cobrador).nota;
   ui.mostrarCobrador(cobrador, nota, lista);
-  ui.mostrarFalta(falta, nomeDoRival(cobrador));
+  mostrarInfoFalta();
   vestirCobrador(cobrador);
   montarAdversarios();
   posicionarCamera();
@@ -787,13 +1003,16 @@ function novaCobranca() {
     audio.apito();
   }
   audio.torcidaAmbiente(0.45);
+  ui.mostrarPlacar(placar());
   mostrarAcoes();
 }
 
 function iniciarReplay({ gravar }) {
   if (!registro || replay) return;
   if (estado.fase !== 'fim' && estado.fase !== 'pronto') return;
-  replay = { gravar: Boolean(gravar && CONFIG.video && gravador.disponivel) };
+  // Guarda a falta e o cobrador de agora: o replay pode ser de outro modo, e com a falta fixa a cobrança
+  // seguinte precisa voltar para eles
+  replay = { gravar: Boolean(gravar && CONFIG.video && gravador.disponivel), antes: { falta: { ...falta }, cobrador } };
   ui.modoReplay(true);
   mostrarAcoes();
   novaCobranca();
@@ -805,6 +1024,8 @@ function encerrarReplay() {
   replay = null;
   ui.modoReplay(false);
   ajustarTela();
+  falta = { ...r.antes.falta };
+  cobrador = r.antes.cobrador;
   if (r.gravar) {
     const apelido = (cobrador.apelido || cobrador.nome).toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const nome = `${jogada.resultado === 'gol' ? 'gol' : 'falta'}-${apelido}`;
@@ -818,19 +1039,25 @@ function encerrarReplay() {
 }
 
 // Tocou na tela no meio do replay: pula para a próxima cobrança
-function pularReplay() {
+function pularReplay(recomecar = true) {
   if (!replay) return;
   if (replay.gravar) gravador.descartar();
+  const r = replay;
   replay = null;
   ui.modoReplay(false);
   ajustarTela();
-  novaCobranca();
+  falta = { ...r.antes.falta };
+  cobrador = r.antes.cobrador;
+  if (recomecar) novaCobranca();
 }
+
+// Fora do treino, a bola no ar precisa terminar o lance (senão dava para cancelar um erro no Desafio do Dia)
+const podePularVoo = () => estado.fase === 'fim' || (estado.fase === 'voo' && estado.modo === 'treino');
 
 function comecarCarga() {
   // Apertar CHUTAR com a bola ainda no ar (ou no replay) já prepara a próxima cobrança
   if (replay) pularReplay();
-  else if (estado.fase === 'voo' || estado.fase === 'fim') novaCobranca();
+  else if (podePularVoo()) novaCobranca();
   if (estado.fase !== 'pronto' || ui.listaAberta()) return;
   estado.fase = 'carregando';
   estado.carga = 0;
@@ -847,16 +1074,19 @@ function soltarChute() {
   estado.tCobranca = 0;
   audio.torcidaTensao(animacao.tempoContato);
   // Guarda a cobrança para o replay (a nova substitui a anterior e o vídeo dela)
-  const sementeChute = aleatorio();
+  const sementeChute = estado.modo === 'desafio' ? desafio.sementeChute : aleatorio();
   sorteioChute = criarSorteio(sementeChute);
-  registro = { falta: { ...falta }, cobrador, contato: { ...contato }, mira: mira.x, forca: estado.forca, sementeJogada, sementeChute };
+  registro = {
+    modo: estado.modo, falta: { ...falta }, cobrador, contato: { ...contato }, mira: mira.x, forca: estado.forca,
+    sementeJogada, sementeChute, pressao: pressaoAtual(), historico: [...historicoPenaltis],
+  };
   videoGol = null;
   mostrarAcoes();
 }
 
 // O pé encontra a bola: a física assume daqui
 function executarChute() {
-  tiro = chutar(bola, { alvo: { x: mira.x, z: 0 }, forca: estado.forca, contato, cobrador, pressao: 0 }, CONFIG, sorteioChute);
+  tiro = chutar(bola, { alvo: { x: mira.x, z: 0 }, forca: estado.forca, contato, cobrador, pressao: registro.pressao || 0 }, CONFIG, sorteioChute);
   estado.fase = 'voo';
   estado.tempo = 0;
   restoFisica = 0;
@@ -913,10 +1143,11 @@ telaJogo.addEventListener('pointerdown', (e) => {
     pularReplay();
     return;
   }
-  if (estado.fase === 'voo' || estado.fase === 'fim') {
+  if (podePularVoo()) {
     novaCobranca();
     return;
   }
+  if (estado.fase === 'voo') return;
   if (estado.fase !== 'pronto') return;
   telaJogo.setPointerCapture(e.pointerId);
   arrasto = { x: e.clientX, mira: mira.x };
@@ -941,11 +1172,12 @@ criarPainel({
   versao: VERSAO,
   aoMudar: (chave) => {
     if (chave.startsWith('falta.')) {
+      if (estado.modo !== 'treino') trocarModo('treino'); // a posição da falta só faz sentido no treino
       estado.fixa = true;
       ui.definirFixar(true);
       falta = { distancia: CONFIG.falta.distancia, angulo: CONFIG.falta.angulo };
       if (estado.fase === 'pronto') novaCobranca();
-    } else if ((chave.startsWith('barreira.') || chave.startsWith('cobrador.') || chave.startsWith('camera.')) && estado.fase === 'pronto') {
+    } else if ((chave.startsWith('barreira.') || chave.startsWith('cobrador.') || chave.startsWith('camera.') || chave.startsWith('penalti.')) && estado.fase === 'pronto') {
       const fixa = estado.fixa;
       estado.fixa = true;
       novaCobranca();
@@ -1053,6 +1285,11 @@ function mostrarResultado(resultado) {
     audio.torcidaGol();
     cenario.torcida.festa(1);
   } else {
+    // Desafio do Dia: a sequência acabou (e volta para a primeira falta do dia)
+    if (!replay && estado.modo === 'desafio' && estado.sequencia > 0) {
+      const melhor = estado.sequencia >= desafio.melhorHoje ? ': a melhor de hoje' : '';
+      sub.push(`Sequência de ${estado.sequencia}${melhor}`);
+    }
     if (!replay) estado.sequencia = 0;
     if (resultado === 'defesa') {
       tipo = 'defesa';
@@ -1076,9 +1313,44 @@ function mostrarResultado(resultado) {
       cenario.torcida.festa(0.35);
     }
   }
+  if (goleiro.penalti) sub.push(descreverGoleiroPenalti(resultado));
+  if (!replay) registrarSequencia(resultado);
   ui.mostrarResultado({ tipo, titulo, sub: sub.join(' · ') });
   ui.mostrarPlacar(placar());
   mostrarAcoes();
+}
+
+// O que o goleiro de pênalti fez (para o resultado na tela)
+function descreverGoleiroPenalti(resultado) {
+  const p = goleiro.penalti;
+  const gol = resultado === 'gol';
+  if (p.vai === 'fica') return gol ? 'O goleiro ficou no meio' : 'O goleiro ficou no meio e pegou';
+  if (p.acertou) return gol ? 'O goleiro foi no canto certo e não alcançou' : 'O goleiro adivinhou o canto';
+  return gol ? 'O goleiro foi no canto errado' : 'O goleiro foi no canto errado e ainda pegou';
+}
+
+// Depois de cada cobrança (fora do replay): recorde de sequência, Desafio do Dia (gol: próxima falta do
+// dia; errou: volta para a primeira) e a memória do goleiro de pênalti
+function registrarSequencia(resultado) {
+  const modo = estado.modo;
+  if (resultado === 'gol') {
+    if (estado.sequencia > (recordes[modo] || 0)) {
+      recordes[modo] = estado.sequencia;
+      salvar('fkl-recordes', recordes);
+    }
+    if (modo === 'desafio') {
+      desafio.indice++;
+      if (estado.sequencia > desafio.melhorHoje) desafio.melhorHoje = estado.sequencia;
+      salvarDesafio();
+    }
+  } else if (modo === 'desafio') {
+    desafio.indice = 0;
+    desafio.tentativas++;
+    salvarDesafio();
+  }
+  if (modo === 'penalti' && bola.cruzamento && Math.abs(bola.cruzamento.x) > 0.5) {
+    historicoPenaltis = [...historicoPenaltis, Math.sign(bola.cruzamento.x)].slice(-4);
+  }
 }
 
 // ---------- Animação dos bonecos ----------
@@ -1236,7 +1508,9 @@ function quadro() {
     rastro.adicionar(bola.pos, dt);
   } else {
     atualizarBarreira(barreira, -1);
-    atualizarGoleiro(goleiro, bola, dt, CONFIG, { chutou: false, tempoDesdeChute: -1, cfgFisica: CONFIG, aleatorio });
+    // No pênalti o goleiro vê a corrida do cobrador: se firma e, se for o caso, parte antes do contato
+    const tempoAteChute = goleiro.penalti && estado.fase === 'corrida' ? Math.max(0, animacao.tempoContato - estado.tCobranca) : undefined;
+    atualizarGoleiro(goleiro, bola, dt, CONFIG, { chutou: false, tempoDesdeChute: -1, tempoAteChute, cfgFisica: CONFIG, aleatorio });
   }
 
   if (estado.fase === 'voo') {
@@ -1297,8 +1571,23 @@ if (MODO_TESTE) {
     emReplay: () => Boolean(replay),
     registro: () => registro && { ...registro, cobrador: registro.cobrador.numero },
     cruzamento: () => bola.cruzamento && { x: bola.cruzamento.x, y: bola.cruzamento.y },
+    modo: (nome) => trocarModo(nome),
+    desafio: () => ({ ...desafio, cobrador: desafio.cobrador && desafio.cobrador.numero }),
+    goleiro: () => (goleiro.penalti ? { ...goleiro.penalti } : null),
+    placar: () => placar(),
+    recordes: () => ({ ...recordes }),
+    historico: () => [...historicoPenaltis],
+    nome: (n) => salvar('fkl-nome', n),
+    textoDesafio: () => textoDoDesafio(),
+    compartilharVisivel: () => !botoes.compartilhar.hidden,
   };
 }
 
+// Abre no último modo usado (no modo teste, sempre no treino)
+{
+  const salvo = MODO_TESTE ? 'treino' : lerSalvo('fkl-modo', 'treino');
+  estado.modo = MODOS.includes(salvo) ? salvo : 'treino';
+  ui.definirModo(estado.modo);
+}
 novaCobranca();
 requestAnimationFrame(quadro);

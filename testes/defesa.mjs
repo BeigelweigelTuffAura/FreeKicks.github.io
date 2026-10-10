@@ -10,7 +10,7 @@ import {
   montarBarreira, atualizarBarreira, colidirBolaBarreira, quantidadeNaBarreira, PADRAO_BARREIRA,
 } from '../js/barreira.js';
 import {
-  criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, partesDoGoleiro, PADRAO_GOLEIRO,
+  criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, partesDoGoleiro, PADRAO_GOLEIRO, PADRAO_PENALTI,
 } from '../js/goleiro.js';
 
 const COMPLETO = process.argv.includes('--completo');
@@ -931,4 +931,270 @@ teste('jogador bom: 35% a 55% de gols de 18 a 24 m; 15% a 35% de 28 a 32 m', () 
   for (const d of [18, 22]) assert.ok(r[d] >= 0.35 - folga && r[d] <= 0.55 + folga, `de ${d} m: ${pct(r[d])}`);
   assert.ok(r[30] >= 0.15 - folga && r[30] <= 0.35 + folga, `de 30 m: ${pct(r[30])}`);
   assert.ok(r[18] > r[30], 'de perto é mais fácil que de longe');
+});
+
+// ---------- Pênalti ----------
+// Bola na marca (11 m), sem barreira. O goleiro decide antes do chute (vai num canto ou fica no meio)
+// com o sorteio da criação; `forcar` fixa a decisão para medir cada caso. Antes do chute rodam ~2 s
+// como no jogo: o gesto da dica e, nos últimos 0,6 s, a corrida do cobrador (tempoAteChute até 0).
+
+const MARCA = { x: 0, z: 11 };
+function cobrarPenalti({ alvo, velocidade, semente = 1, forcar, historico = [], penalti = {}, registrar = false }) {
+  const aleatorio = sorteio(semente);
+  const cfg = { ...CONFIG, goleiro: {}, penalti: { ...penalti } };
+  const g = criarGoleiro(MARCA, null, cfg, { penalti: { historico, aleatorio: sorteio(semente + 7000), forcar } });
+  const bola = criarBola({ x: MARCA.x, y: CONFIG.raioBola, z: MARCA.z });
+  for (let t = 0; t < 1.4; t += 1 / 60) atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false });
+  for (let falta = 0.6; falta > 1e-9; falta -= 1 / 60) atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false, tempoAteChute: falta });
+  atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false, tempoAteChute: 0 });
+  montarChute(bola, mirar(MARCA, alvo, { velocidade }));
+
+  const eventos = [];
+  const trilha = [];
+  let t = 0;
+  for (let q = 0; q < 3 * 60; q++) {
+    for (let i = 0; i < 4; i++) {
+      t += H;
+      atualizarGoleiro(g, bola, H, cfg, { chutou: true, tempoDesdeChute: t, aleatorio });
+      passo(bola, H, CONFIG);
+      colidirBolaGoleiro(bola, g, cfg);
+      for (const ev of bola.eventos) eventos.push({ ...ev, t });
+      bola.eventos.length = 0;
+      if (registrar) trilha.push({ t, centro: { x: g.cx, y: g.cy }, bola: { ...bola.pos } });
+    }
+  }
+  const tipos = new Set(eventos.map((e) => e.tipo));
+  const resultado = bola.gol ? 'gol' : tipos.has('defesa') ? 'defesa' : 'fora';
+  return { resultado, eventos, g, bola, trilha };
+}
+
+// Um caso nos dois cantos (o lado forçado do goleiro acompanha o alvo): fração de gols e de defesas
+function taxaPenalti({ alvo, velocidade, forcar, penalti = {}, sementes = 24 }) {
+  const conta = { gol: 0, defesa: 0, acertou: 0, n: 0 };
+  for (const s of [-1, 1]) {
+    for (let k = 1; k <= sementes; k++) {
+      const f = { ...forcar };
+      if (f.lado) f.lado *= s;
+      const r = cobrarPenalti({ alvo: { x: alvo.x * s, y: alvo.y }, velocidade, semente: k, forcar: f, penalti });
+      conta.n++;
+      if (r.resultado === 'gol') conta.gol++;
+      if (r.resultado === 'defesa') conta.defesa++;
+      if (r.g.penalti.acertou) conta.acertou++;
+    }
+  }
+  return { gol: conta.gol / conta.n, defesa: conta.defesa / conta.n, acertou: conta.acertou / conta.n, n: conta.n };
+}
+const UM_METRO_DA_TRAVE = MEIA - 1.0;
+
+teste('pênalti: decide antes do chute com a semente (vai, lado, dica); sem opcoes.penalti nada muda na falta', () => {
+  const cfg = { ...CONFIG, goleiro: {}, penalti: {} };
+  // forcar fixa a decisão
+  const g = criarGoleiro(MARCA, null, cfg, { penalti: { historico: [], aleatorio: sorteio(1), forcar: { vai: 'lado', lado: -1, dica: 1 } } });
+  assert.deepEqual([g.penalti.vai, g.penalti.lado, g.penalti.dica, g.penalti.disparou, g.penalti.acertou], ['lado', -1, 1, false, null]);
+  assert.deepEqual(g.pose.penalti, { vai: 'lado', lado: -1, dica: 1, disparou: false });
+  assert.equal(g.pose.dica, 0, 'ainda não apontou');
+  assert.equal(g.pose.dicaForca, 0);
+  assert.ok(Math.abs(g.base.x) < 1e-9 && Math.abs(g.cx) < 1e-9, 'no meio do gol');
+  const fica = criarGoleiro(MARCA, null, cfg, { penalti: { historico: [], aleatorio: sorteio(1), forcar: { vai: 'fica' } } });
+  assert.equal(fica.penalti.vai, 'fica');
+  assert.equal(fica.penalti.lado, 0);
+  assert.ok(fica.penalti.dica === 1 || fica.penalti.dica === -1, 'quem fica também insinua um canto');
+  // Mesma semente e mesmo histórico: mesma decisão. Sorteado, respeita as chances
+  let vai = 0;
+  for (let s = 1; s <= 400; s++) {
+    const a = criarGoleiro(MARCA, null, cfg, { penalti: { historico: [1, -1], aleatorio: sorteio(s) } });
+    const b = criarGoleiro(MARCA, null, cfg, { penalti: { historico: [1, -1], aleatorio: sorteio(s) } });
+    assert.deepEqual(a.pose.penalti, b.pose.penalti);
+    assert.ok(a.penalti.vai === 'fica' ? a.penalti.lado === 0 : Math.abs(a.penalti.lado) === 1);
+    assert.ok(Math.abs(a.penalti.dica) === 1);
+    if (a.penalti.vai === 'lado') vai++;
+  }
+  assert.ok(Math.abs(vai / 400 - PADRAO_PENALTI.chanceAdivinhar) < 0.06, `vai num canto em ${pct(vai / 400)}`);
+  // Na falta: nada de pênalti na pose
+  const falta = criarGoleiro({ x: 0, z: 22 }, null, CONFIG);
+  assert.equal(falta.penalti, null);
+  assert.equal(falta.pose.penalti, null);
+  assert.equal(falta.pose.dica, 0);
+  assert.equal(falta.pose.dicaForca, 0);
+  const bola = criarBola({ x: 0, y: CONFIG.raioBola, z: 22 });
+  for (let t = 0; t < 1; t += 1 / 60) atualizarGoleiro(falta, bola, 1 / 60, CONFIG, { chutou: false });
+  assert.equal(falta.pose.dica, 0);
+  assert.equal(falta.pose.penalti, null);
+});
+
+teste('pênalti: a memória dos últimos chutes puxa o canto; a dica é verdade na chance combinada', () => {
+  const cfg = { ...CONFIG, goleiro: {}, penalti: { memoria: 0.7 } };
+  const medir = (historico) => {
+    let vai = 0;
+    let direita = 0;
+    let dicaCerta = 0;
+    for (let s = 1; s <= 400; s++) {
+      const g = criarGoleiro(MARCA, null, cfg, { penalti: { historico, aleatorio: sorteio(s) } });
+      if (g.penalti.vai !== 'lado') continue;
+      vai++;
+      if (g.penalti.lado === 1) direita++;
+      if (g.penalti.dica === g.penalti.lado) dicaCerta++;
+    }
+    return { direita: direita / vai, dicaCerta: dicaCerta / vai };
+  };
+  const tresDireita = medir([1, 1, 1]);
+  const vazio = medir([]);
+  const tresEsquerda = medir([-1, -1, -1]);
+  console.log(`    vai para a direita: três chutes à direita ${pct(tresDireita.direita)}, sem histórico ${pct(vazio.direita)}, três à esquerda ${pct(tresEsquerda.direita)}`);
+  assert.ok(Math.abs(tresDireita.direita - 0.85) <= 0.07, `três à direita: ${pct(tresDireita.direita)}`);
+  assert.ok(Math.abs(vazio.direita - 0.5) <= 0.08, `sem histórico: ${pct(vazio.direita)}`);
+  assert.ok(Math.abs(tresEsquerda.direita - 0.15) <= 0.07, `três à esquerda: ${pct(tresEsquerda.direita)}`);
+  assert.ok(Math.abs(vazio.dicaCerta - PADRAO_PENALTI.chanceDica) <= 0.07, `dica verdadeira em ${pct(vazio.dicaCerta)}`);
+  // Só os 4 últimos contam; a memória zerada ignora o histórico
+  const soUltimos = medir([-1, -1, -1, -1, -1, -1, 1, 1, 1, 1]);
+  assert.ok(Math.abs(soUltimos.direita - 0.85) <= 0.07, `só os 4 últimos: ${pct(soUltimos.direita)}`);
+  const semMemoria = { ...CONFIG, goleiro: {}, penalti: { memoria: 0 } };
+  let direita = 0;
+  let n = 0;
+  for (let s = 1; s <= 400; s++) {
+    const g = criarGoleiro(MARCA, null, semMemoria, { penalti: { historico: [1, 1, 1], aleatorio: sorteio(s) } });
+    if (g.penalti.vai !== 'lado') continue;
+    n++;
+    if (g.penalti.lado === 1) direita++;
+  }
+  assert.ok(Math.abs(direita / n - 0.5) <= 0.08, `sem memória: ${pct(direita / n)}`);
+});
+
+teste('pênalti: antes do chute insinua um canto (aponta e dá o passinho) e volta; na corrida se firma no meio', () => {
+  const cfg = { ...CONFIG, goleiro: {}, penalti: {} };
+  const bola = criarBola({ x: MARCA.x, y: CONFIG.raioBola, z: MARCA.z });
+  for (const dica of [-1, 1]) {
+    const g = criarGoleiro(MARCA, null, cfg, { penalti: { historico: [], aleatorio: sorteio(3), forcar: { vai: 'lado', lado: -dica, dica } } });
+    let maiorForca = 0;
+    let maisLonge = 0;
+    let apontou = 0;
+    for (let t = 0; t < 2.2; t += 1 / 60) {
+      atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false });
+      const p = g.pose;
+      assert.ok(p.dicaForca >= 0 && p.dicaForca <= 1, `dicaForca ${p.dicaForca}`);
+      assert.equal(p.dica, p.dicaForca > 0 ? dica : 0, 'aponta o canto da dica, e só enquanto aponta');
+      assert.equal(p.estado, 'pronto');
+      assert.equal(g.tempo, 0);
+      maiorForca = Math.max(maiorForca, p.dicaForca);
+      maisLonge = Math.max(maisLonge, dica * g.cx);
+      if (p.dicaForca > 0.5) apontou++;
+      assert.ok(Math.abs(g.vx) <= 1.5 + 1e-9, 'passinho sem pressa');
+    }
+    assert.ok(maiorForca > 0.99, `apontou com força ${maiorForca}`);
+    assert.ok(apontou / 60 > 0.6 && apontou / 60 < 1.3, `apontou por ${(apontou / 60).toFixed(2)} s`);
+    assert.ok(maisLonge > 0.2 && maisLonge < 0.4, `passinho de ${maisLonge.toFixed(2)} m para o lado da dica`);
+    assert.equal(g.pose.dicaForca, 0, 'o gesto já acabou');
+    assert.ok(Math.abs(g.cx) < 0.08, `voltou para o meio: ${g.cx}`);
+    // Corrida do cobrador: o gesto some e ele se firma no meio (nada de mergulhar antes do chute com atraso 0)
+    for (let falta = 0.8; falta > 1e-9; falta -= 1 / 60) atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false, tempoAteChute: falta });
+    atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false, tempoAteChute: 0 });
+    assert.equal(g.pose.dicaForca, 0);
+    assert.equal(g.pose.dica, 0);
+    assert.ok(g.pose.prontidao > 0.99, `firme: ${g.pose.prontidao}`);
+    assert.ok(Math.abs(g.cx) < 0.03, `no meio: ${g.cx}`);
+    assert.equal(g.penalti.disparou, false);
+    assert.equal(g.pose.estado, 'pronto');
+  }
+  // Com o cobrador demorando, o gesto se repete
+  const g = criarGoleiro(MARCA, null, cfg, { penalti: { historico: [], aleatorio: sorteio(3), forcar: { vai: 'fica', dica: 1 } } });
+  let gestos = 0;
+  let apontando = false;
+  for (let t = 0; t < 8; t += 1 / 60) {
+    atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false });
+    if (g.pose.dicaForca > 0.5 && !apontando) gestos++;
+    apontando = g.pose.dicaForca > 0.5;
+  }
+  assert.ok(gestos >= 2, `gestos em 8 s: ${gestos}`);
+});
+
+teste('pênalti: acertou o canto: pega a bola média; a forte no ângulo entra; a rasteira fica no meio-termo', () => {
+  const lado = { vai: 'lado', lado: 1 };
+  const media = taxaPenalti({ alvo: { x: UM_METRO_DA_TRAVE, y: 1.0 }, velocidade: 20, forcar: lado });
+  const forte = taxaPenalti({ alvo: { x: 3.2, y: 2.1 }, velocidade: 30, forcar: lado });
+  const rasteira = taxaPenalti({ alvo: { x: 3.0, y: 0.3 }, velocidade: 22, forcar: lado });
+  const rasteiraMedia = taxaPenalti({ alvo: { x: 3.0, y: 0.3 }, velocidade: 25, forcar: lado });
+  console.log(`    acertou o canto: meia altura a 1 m da trave a 20 m/s ${pct(media.defesa)} de defesas; forte no ângulo a 30 m/s ${pct(forte.gol)} de gols`);
+  console.log(`    rasteira no canto: a 22 m/s ${pct(rasteira.gol)} de gols, a 25 m/s ${pct(rasteiraMedia.gol)} (${rasteira.n} chutes cada)`);
+  assert.ok(media.defesa >= 0.6, `bola média: só ${pct(media.defesa)} de defesas`);
+  assert.ok(forte.gol >= 0.7, `bola forte no ângulo: só ${pct(forte.gol)} de gols`);
+  assert.ok(rasteira.gol > 0 && rasteira.gol < 1, `rasteira: ${pct(rasteira.gol)} de gols`);
+  assert.equal(media.acertou, 1, 'acertou o canto');
+  assert.equal(forte.acertou, 1);
+});
+
+teste('pênalti: errou o canto, ou se jogou com a bola no meio: gol', () => {
+  const errou = taxaPenalti({ alvo: { x: UM_METRO_DA_TRAVE, y: 1.0 }, velocidade: 22, forcar: { vai: 'lado', lado: -1 } });
+  const meio = taxaPenalti({ alvo: { x: 0, y: 1.0 }, velocidade: 20, forcar: { vai: 'lado', lado: 1 } });
+  console.log(`    errou o canto a 22 m/s: ${pct(errou.gol)} de gols; se jogou com a bola no meio a 20 m/s: ${pct(meio.gol)}`);
+  assert.ok(errou.gol >= 0.95, `errou o canto: só ${pct(errou.gol)} de gols`);
+  assert.ok(meio.gol >= 0.9, `bola no meio: só ${pct(meio.gol)} de gols`);
+  assert.equal(errou.acertou, 0);
+  assert.equal(meio.acertou, 0, 'bola no meio com ele se jogando não conta como acerto');
+});
+
+teste('pênalti: ficou no meio: pega a bola no meio e sofre no canto', () => {
+  const fica = { vai: 'fica' };
+  const meio = taxaPenalti({ alvo: { x: 0, y: 1.0 }, velocidade: 16, forcar: fica });
+  const canto = taxaPenalti({ alvo: { x: 2.8, y: 1.0 }, velocidade: 24, forcar: fica });
+  console.log(`    ficou: bola no meio a 16 m/s ${pct(meio.defesa)} de defesas; no canto a 24 m/s ${pct(canto.gol)} de gols`);
+  assert.ok(meio.defesa >= 0.7, `bola no meio: só ${pct(meio.defesa)} de defesas`);
+  assert.ok(canto.gol >= 0.85, `bola no canto: só ${pct(canto.gol)} de gols`);
+  assert.equal(meio.acertou, 1, 'ficou e a bola veio no meio: acertou');
+  assert.equal(canto.acertou, 0);
+  // Quem fica reage com o reflexo do pênalti, pelo caminho normal de leitura
+  const r = cobrarPenalti({ alvo: { x: 0, y: 1.0 }, velocidade: 16, semente: 2, forcar: fica });
+  assert.ok(Math.abs(r.g.reacao - PADRAO_PENALTI.reflexo) < 1e-9, `reage em ${r.g.reacao} s`);
+  assert.ok(r.g.reagiu && r.g.leitura, 'leu a bola');
+  assert.equal(r.g.penalti.disparou, false, 'não se jogou num canto');
+});
+
+teste('pênalti: atraso negativo: se joga às cegas antes do contato e o mergulho continua depois do chute', () => {
+  const penalti = { atraso: -0.15, variacaoAtraso: 0 };
+  let defesas = 0;
+  for (let s = 1; s <= 8; s++) {
+    const r = cobrarPenalti({ alvo: { x: UM_METRO_DA_TRAVE, y: 1.0 }, velocidade: 22, semente: s, forcar: { vai: 'lado', lado: 1 }, penalti, registrar: true });
+    const m = r.g.mergulho;
+    assert.ok(m && r.g.penalti.disparou, 'mergulhou');
+    assert.ok(Math.abs(m.t0 + 0.15) < 1 / 60 + 1e-9, `se jogou em ${m.t0} s`);
+    assert.deepEqual(m.alvoLido, { x: PADRAO_PENALTI.distanciaPalpite, y: PADRAO_PENALTI.alturaPalpite }, 'sem ver a bola, vai no ponto do palpite');
+    // Já estava indo quando a bola saiu, e segue no mesmo mergulho (sem recomeçar nem pular)
+    const cedo = r.trilha.find((p) => p.t > 0.05);
+    assert.ok(cedo.centro.x > 0.25, `já em x=${cedo.centro.x.toFixed(2)} logo depois do chute`);
+    for (let i = 1; i < r.trilha.length; i++) {
+      const salto = Math.abs(r.trilha[i].centro.x - r.trilha[i - 1].centro.x);
+      assert.ok(salto < PADRAO_PENALTI.velocidadeMergulho * H + 0.01, `tranco de ${salto.toFixed(3)} m num passo`);
+    }
+    assert.ok(r.trilha.every((p) => Number.isFinite(p.centro.x + p.centro.y)), 'nada de NaN');
+    assert.ok(r.g.pose.estado === 'caido' || r.g.pose.estado === 'segurou', r.g.pose.estado);
+    assert.equal(r.g.penalti.acertou, true);
+    assert.equal(r.g.pose.penalti.disparou, true);
+    if (r.resultado === 'defesa') defesas++;
+  }
+  console.log(`    às cegas (atraso −0,15 s), acertando o canto, bola a 1 m da trave a 22 m/s: ${defesas} defesas em 8`);
+  assert.ok(defesas >= 4, `as mãos se ajeitam no ar: só ${defesas} defesas`);
+  // Sem saber da corrida (tempoAteChute nunca chega), ele se joga no primeiro instante depois do chute
+  const cfg = { ...CONFIG, goleiro: {}, penalti };
+  const g = criarGoleiro(MARCA, null, cfg, { penalti: { historico: [], aleatorio: sorteio(1), forcar: { vai: 'lado', lado: 1 } } });
+  const bola = criarBola({ x: MARCA.x, y: CONFIG.raioBola, z: MARCA.z });
+  for (let t = 0; t < 1.5; t += 1 / 60) atualizarGoleiro(g, bola, 1 / 60, cfg, { chutou: false });
+  assert.equal(g.penalti.disparou, false);
+  montarChute(bola, mirar(MARCA, { x: 2.5, y: 1.0 }, { velocidade: 22 }));
+  atualizarGoleiro(g, bola, H, cfg, { chutou: true, tempoDesdeChute: H, aleatorio: sorteio(1) });
+  assert.equal(g.penalti.disparou, true);
+  assert.equal(g.pose.estado, 'mergulhando');
+});
+
+teste('pênalti: mesma semente e mesmo histórico, mesmo lance (o replay repete o goleiro)', () => {
+  for (const [s, alvo, historico] of [[1, { x: 2.66, y: 1.0 }, [1, 1]], [2, { x: -3.0, y: 0.4 }, []], [3, { x: 0.3, y: 1.8 }, [-1, 1, -1]]]) {
+    const a = cobrarPenalti({ alvo, velocidade: 24, semente: s, historico, registrar: true });
+    const b = cobrarPenalti({ alvo, velocidade: 24, semente: s, historico, registrar: true });
+    assert.equal(a.resultado, b.resultado);
+    assert.deepEqual(a.g.pose, b.g.pose);
+    assert.deepEqual(a.bola.pos, b.bola.pos);
+    assert.equal(a.trilha.length, b.trilha.length);
+    for (let i = 0; i < a.trilha.length; i++) {
+      assert.equal(a.trilha[i].centro.x, b.trilha[i].centro.x, `x do goleiro em t=${a.trilha[i].t}`);
+      assert.equal(a.trilha[i].centro.y, b.trilha[i].centro.y);
+    }
+  }
 });

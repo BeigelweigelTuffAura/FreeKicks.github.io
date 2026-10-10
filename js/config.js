@@ -1,7 +1,7 @@
 // Todos os números ajustáveis do jogo ficam aqui.
 // Unidades: metros, segundos, graus.
 
-export const VERSAO = 'v0.1 · etapa 6';
+export const VERSAO = 'v0.1 · etapa 7';
 
 export const CONFIG = {
   // Mundo
@@ -89,10 +89,19 @@ export const CONFIG = {
     larguraVisivel: 32,   // campo de visão horizontal mínimo (graus): no celular em pé, mais = mais afastada
     seguir: 0.25,         // quanto a câmera acompanha a bola depois do chute (0 = parada)
 
-    // Câmera do replay: atrás do gol, como na TV
-    replayLado: 7,        // m para o lado (do lado contrário ao canto em que a bola vai)
-    replayAltura: 3.2,    // m do chão
-    replayAtras: 8,       // m atrás da linha do gol
+    // Câmera do replay. Lateral (padrão): do lado direito de quem cobra, sempre o mesmo lado, com o gol
+    // à direita da tela, como no treino do PES de PS2. Acompanha a bola, porque no celular em pé não cabe
+    // cobrador e gol de uma vez. Desligando `replayLateral`, volta a câmera atrás do gol (como na TV).
+    replayLateral: true,
+    replayLateralDist: 13,    // m para o lado direito de quem cobra (contado a partir da bola)
+    replayLateralAltura: 3.5, // m do chão
+    replayLateralAlvo: 0.45,  // quanto o olhar vai da bola para o meio do gol quando a bola chega lá (0 = só a bola)
+    replayLateralLargura: 30, // graus de campo de visão horizontal (menos = mais zoom)
+    replayLateralSegue: 0.75, // quanto a câmera anda junto com a bola em direção ao gol (0 = parada, 1 = sempre ao lado da bola)
+    replayLateralFrente: 2,   // m que a câmera fica adiantada em relação à bola, na direção do gol
+    replayLado: 7,        // atrás do gol: m para o lado (do lado contrário ao canto em que a bola vai)
+    replayAltura: 3.2,    // atrás do gol: m do chão
+    replayAtras: 8,       // atrás do gol: m atrás da linha do gol
 
     // Câmera aérea depois do chute (como nos jogos de falta do Click Jogos)
     aerea: true,
@@ -121,6 +130,19 @@ export const CONFIG = {
     distanciaMin: 18,     // m
     distanciaMax: 33,     // m
     anguloMax: 32,        // graus para cada lado
+  },
+
+  // Desafio do Dia: as mesmas faltas, na mesma ordem, para todo mundo no mesmo dia (sorteio com a data
+  // como semente). Vale a maior sequência de gols; errou, volta para a primeira falta do dia.
+  desafio: {
+    pressaoPorGol: 0.1,   // a pressão (que aumenta o erro; a frieza do cobrador corta parte) cresce isso por gol seguido
+    pressaoMax: 1,        // teto da pressão
+  },
+
+  // Pênaltis: bola na marca, sem barreira, goleiro que "adivinha" o canto. Os números do goleiro de pênalti
+  // (chance de adivinhar, dica, memória...) vêm de PADRAO_PENALTI em js/goleiro.js; o que estiver aqui tem prioridade.
+  penalti: {
+    pressao: 0.25,        // pressão fixa do pênalti (0 = treino, 1 = decisão)
   },
 
   rastro: true,           // pontinhos atrás da bola durante o voo, para ver a curva

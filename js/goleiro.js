@@ -17,9 +17,18 @@
 // - O mergulho é físico: as pernas empurram o corpo durante o impulso e depois ele voa em parábola
 //   (a gravidade puxa), cai e escorrega. No ar, só as mãos ainda se ajeitam um pouco.
 // Defende o fácil e sofre no ângulo.
+//
+// Pênalti (opcoes.penalti em criarGoleiro): ele decide antes do chute, com o sorteio de quem chama.
+// - Quase sempre escolhe um canto (a memória dos últimos chutes do cobrador puxa a escolha); às
+//   vezes fica no meio e reage como na falta. Antes do chute insinua um canto (aponta e dá um
+//   passinho): é a "dica", que pode ser verdade ou não.
+// - Escolheu o canto: no instante `atraso` se joga. Vendo a bola, vai nela se ela vem para o lado
+//   dele; senão vai no ponto do palpite mesmo assim (está comprometido). Com atraso negativo se joga
+//   às cegas, antes do contato, e as mãos se ajeitam no ar.
+// - Ficou: lê a bola como sempre, com o reflexo do pênalti. Pega o que vem no meio e o chute fraco.
 
-import { passo } from './physics.js?v=6';
-import { CONFIG } from './config.js?v=6';
+import { passo } from './physics.js?v=7';
+import { CONFIG } from './config.js?v=7';
 
 export const PADRAO_GOLEIRO = {
   reflexo: 0.3,             // s entre o chute e a primeira reação
@@ -50,7 +59,36 @@ export const PADRAO_GOLEIRO = {
   posicaoZ: 0.4,            // m à frente da linha do gol
 };
 
+// Goleiro no pênalti (entra no CONFIG.penalti; o que estiver lá tem prioridade)
+export const PADRAO_PENALTI = {
+  chanceAdivinhar: 0.8,     // chance de ele escolher um canto antes do chute (senão fica no meio e reage)
+  chanceDica: 0.65,         // chance de a dica (o canto que ele insinua antes do chute) ser o canto para onde vai
+  memoria: 0.7,             // quanto o histórico dos últimos chutes puxa a escolha do canto (0 = ignora)
+  atraso: 0,                // s depois do contato do pé em que ele se joga (negativo = antes, às cegas)
+  variacaoAtraso: 0.1,      // s a mais no atraso, sorteado de 0 até isso em cada pênalti (a borda forte/médio fica suave)
+  alturaPalpite: 1.0,       // m: altura do mergulho às cegas (sem ver a bola, ou vendo que ela vai para o outro lado)
+  distanciaPalpite: 2.8,    // m do meio: para onde as mãos vão no mergulho às cegas
+  tempoPalpite: 0.5,        // s depois do contato em que ele espera a bola, enquanto não a viu
+  alemDaLeitura: 0.35,      // m além de onde leu a bola (para a trave) que ele estica: a bola mais curta pega no braço
+  velocidadeMergulho: 6.5,  // m/s: pernas de goleiro bom (só no pênalti; os demais são de PADRAO_GOLEIRO)
+  alcance: 0.95,            // m além do centro do corpo que as mãos alcançam (só no pênalti)
+  impulsoVertical: 3,       // m/s do pulo (só no pênalti)
+  reflexo: 0.2,             // s até reagir quando fica no meio (só no pênalti)
+  erroLeitura: 0.6,         // m: erro típico da leitura (só no pênalti; de perto e concentrado, erra menos)
+};
+// Chaves de PADRAO_PENALTI que valem por cima das do goleiro, no pênalti
+const CHAVES_PENALTI = ['velocidadeMergulho', 'alcance', 'impulsoVertical', 'reflexo', 'erroLeitura'];
+
 const lerCfg = (cfg) => ({ ...PADRAO_GOLEIRO, ...((cfg && cfg.goleiro) || {}) });
+const lerPenalti = (cfg) => ({ ...PADRAO_PENALTI, ...((cfg && cfg.penalti) || {}) });
+// Config do goleiro: no pênalti, com os números de goleiro bom por cima
+function cfgDoGoleiro(g, cfg) {
+  const c = lerCfg(cfg);
+  if (!g || !g.penalti) return c;
+  const cp = lerPenalti(cfg);
+  for (const k of CHAVES_PENALTI) if (Number.isFinite(cp[k])) c[k] = cp[k];
+  return c;
+}
 // A física da bola precisa do CONFIG do jogo (gravidade, arrasto...): sem ele, usa o padrão
 const lerFisica = (cfg, opcoes) => {
   if (opcoes && opcoes.cfgFisica) return opcoes.cfgFisica;
@@ -120,6 +158,14 @@ const SEM_SEGURAR = 0.2;        // s depois de espalmar: a mesma bola não é en
 const VOO_MAX = 0.45;           // s: o voo mais longo de um mergulho (mais longe que isso, antes dá passos)
 const ESCORREGA = 12;           // 1/s: quão rápido o corpo para de escorregar no gramado depois do mergulho
 
+// Pênalti: o gesto de insinuar o canto antes do chute, e o que conta como "bola no meio"
+const GESTO_INICIO = 0.4;       // s depois de a cobrança aparecer: começa a insinuar o canto
+const GESTO_DURACAO = 1.5;      // s que cada gesto dura (aponta, dá o passinho e volta)
+const GESTO_INTERVALO = 3.5;    // s de um gesto ao próximo, enquanto o cobrador não corre
+const GESTO_SOME = 0.3;         // s para o gesto sumir quando o cobrador começa a correr
+const PASSO_DICA = 0.3;         // m do passinho para o lado da dica
+const MEIO_PENALTI = 0.6;       // m: bola até isso do meio é "no meio" (quem se jogou não pega; quem ficou pega)
+
 // Centro do corpo mais baixo possível para uma rolagem: de pé (ajoelhado) ~0,82 m; deitado de lado
 // ~0,33 m. Tombado, quem segura é a coxa (as canelas dobram).
 const centroMinimo = (rolagem) => Math.max(
@@ -137,12 +183,59 @@ function sortearNormal(aleatorio) {
 
 // ---------- Criação ----------
 
+// A decisão do pênalti, antes do chute, com o sorteio de quem chama (o replay repete a mesma).
+//   historico: lado em que os últimos chutes do cobrador cruzaram a linha (−1 | +1), o mais recente
+//   por último (só os 4 últimos contam). forcar: { vai, lado, dica } fixa o que quiser (testes).
+// Sorteia sempre na mesma ordem (vai, lado, dica, erro de leitura, percepção, atraso): a semente
+// rende o mesmo.
+function decidirPenalti(cp, { historico, aleatorio, forcar } = {}) {
+  const sorteio = typeof aleatorio === 'function' ? aleatorio : Math.random;
+  const f = forcar || {};
+  const uVai = sorteio();
+  const uLado = sorteio();
+  const uDica = sorteio();
+  const n = sortearNormal(sorteio);
+  const uPercepcao = sorteio();
+  const uAtraso = sorteio();
+  const vai = f.vai === 'lado' || f.vai === 'fica' ? f.vai : uVai < cp.chanceAdivinhar ? 'lado' : 'fica';
+  // Memória: tendência de −1 (tudo para a esquerda) a +1 (tudo para a direita)
+  const ultimos = Array.isArray(historico) ? historico.slice(-4).map((v) => Math.sign(v)).filter((v) => v) : [];
+  const tendencia = ultimos.length ? ultimos.reduce((s, v) => s + v, 0) / ultimos.length : 0;
+  const chanceDireita = 0.5 + 0.5 * cp.memoria * tendencia;
+  let lado = 0;
+  let dica;
+  if (vai === 'lado') {
+    lado = f.lado === 1 || f.lado === -1 ? f.lado : uLado < chanceDireita ? 1 : -1;
+    dica = f.dica === 1 || f.dica === -1 ? f.dica : uDica < cp.chanceDica ? lado : -lado;
+  } else {
+    // Fica no meio, mas insinua um canto mesmo assim
+    dica = f.dica === 1 || f.dica === -1 ? f.dica : uDica < 0.5 ? -1 : 1;
+  }
+  return {
+    vai,                      // 'lado' (se joga num canto) | 'fica' (fica no meio e reage)
+    lado,                     // −1 | +1 o canto escolhido (+1 = direita de quem cobra); 0 quando fica
+    dica,                     // −1 | +1 o canto que ele insinua antes do chute
+    disparou: false,          // já se jogou no canto escolhido
+    acertou: null,            // true/false assim que der para saber se a bola foi para o lado dele
+    dicaForca: 0,             // 0 a 1: quanto o gesto da dica aparece agora
+    erro: { x: limitar(n.a, -2.2, 2.2), y: limitar(n.b, -2.2, 2.2) }, // erro de leitura (em desvios), já sorteado
+    percepcao: uPercepcao,    // sorteio (0 a 1) de quanto da curva ele enxerga
+    sorteioAtraso: uAtraso,   // 0 a 1: vezes variacaoAtraso, o quanto o mergulho atrasa neste pênalti
+  };
+}
+
+// Instante (s depois do contato) em que ele se joga neste pênalti
+const atrasoDoPalpite = (p, cp) => cp.atraso + cp.variacaoAtraso * p.sorteioAtraso;
+
 // posBola: {x, z} da falta. barreira: o que montarBarreira devolveu (ou null, sem barreira).
 // A posição dele é a bissetriz do ângulo das traves (vista da bola), um pouco à frente da linha,
 // deslocada para o lado que a barreira não cobre. Ele começa na bissetriz (arrumando a barreira)
 // e dá o passo para o lado logo depois.
-export function criarGoleiro(posBola, barreira, cfg = CONFIG) {
-  const c = lerCfg(cfg);
+//   opcoes.penalti: { historico, aleatorio, forcar } liga o modo pênalti (veja decidirPenalti).
+//   Sem isso, g.penalti é null e nada muda na falta.
+export function criarGoleiro(posBola, barreira, cfg = CONFIG, opcoes = {}) {
+  const penalti = opcoes && opcoes.penalti ? decidirPenalti(lerPenalti(cfg), opcoes.penalti) : null;
+  const c = cfgDoGoleiro({ penalti }, cfg);
   const meia = ((cfg && cfg.golLargura) ?? 7.32) / 2;
   const bx = posBola.x;
   const bz = posBola.z;
@@ -201,6 +294,7 @@ export function criarGoleiro(posBola, barreira, cfg = CONFIG) {
     maos: null,               // [mão direita, mão esquerda] do goleiro
     ultimoContato: -Infinity, // instante do último toque na bola
     ultimoEspalmo: -Infinity, // instante da última espalmada
+    penalti,                  // a decisão do pênalti (null na falta)
     _anterior: null,
     _bola: null,
   };
@@ -487,11 +581,14 @@ function comecarMergulho(g, plano, t, c, tChegada) {
 //   opcoes.chutou: a bola já foi chutada. opcoes.tempoDesdeChute: segundos desde o chute.
 //   opcoes.tempoAteChute: na corrida do cobrador, segundos até o pé pegar na bola (se souber):
 //     ele se firma e dá o passinho de prontidão, caindo na base bem na hora do chute.
+//     (No pênalti com atraso negativo é o que dispara o mergulho às cegas antes do contato.)
 //   opcoes.cfgFisica: config da física para simular a bola (padrão: cfg, ou o CONFIG do jogo).
-//   opcoes.aleatorio: função de 0 a 1 para o erro de leitura (padrão: Math.random).
+//   opcoes.aleatorio: função de 0 a 1 para o erro de leitura (padrão: Math.random). Só é usado
+//     depois do chute; antes dele nada é sorteado (o pênalti decide tudo na criação).
 // Crie um goleiro novo (criarGoleiro) a cada cobrança.
 export function atualizarGoleiro(g, bola, dt, cfg = CONFIG, opcoes = {}) {
-  const c = lerCfg(cfg);
+  const c = cfgDoGoleiro(g, cfg);
+  const cp = g.penalti ? lerPenalti(cfg) : null;
   const fis = lerFisica(cfg, opcoes);
   const aleatorio = opcoes.aleatorio || Math.random;
   const meia = ((cfg && cfg.golLargura) ?? 7.32) / 2;
@@ -502,7 +599,8 @@ export function atualizarGoleiro(g, bola, dt, cfg = CONFIG, opcoes = {}) {
   g.relogio += dt;
 
   if (!opcoes.chutou) {
-    antesDoChute(g, bola, dt, c, opcoes.tempoAteChute);
+    if (cp) antesDoPenalti(g, bola, dt, c, cp, opcoes.tempoAteChute);
+    else antesDoChute(g, bola, dt, c, opcoes.tempoAteChute);
     terminarQuadro(g, c, dt, cxAntes, cyAntes);
     return g.pose;
   }
@@ -516,6 +614,16 @@ export function atualizarGoleiro(g, bola, dt, cfg = CONFIG, opcoes = {}) {
     g.analisado = true;
     g.tapada = passaPelaBarreira(bola, g.barreira, fis);
     g.reacao = c.reflexo + (g.tapada ? c.atrasoBarreira : 0);
+    // Pênalti indo num canto: não "reage" à bola; se joga na hora marcada (abaixo)
+    if (cp && g.penalti.vai === 'lado') g.reacao = Infinity;
+  }
+  // Pênalti: escolheu um canto e chegou a hora de se jogar
+  if (cp && g.penalti.vai === 'lado' && !g.penalti.disparou && !g.mergulho && t >= atrasoDoPalpite(g.penalti, cp)) {
+    g.erro = g.penalti.erro;
+    g.percepcao = limitar(c.percepcaoCurva + c.variacaoPercepcao * (2 * g.penalti.percepcao - 1), 0, 1);
+    lerBola(g, bola, c, fis);
+    g.proximaLeitura = t + c.intervaloLeitura;
+    dispararPalpite(g, c, cp, g.leitura, t);
   }
   // Não viu a corrida: o passinho de prontidão vem agora, logo depois do chute
   if (!g.passinho) g.passinho = { depois: true, t0: Math.max(0, t - dt) };
@@ -585,13 +693,15 @@ export function atualizarGoleiro(g, bola, dt, cfg = CONFIG, opcoes = {}) {
   }
 
   if (g.segurando && g.encaixe) g.bolaPresa = posicaoDaBolaPresa(g, eixos(g), r);
+  if (cp) conferirPalpite(g, bola);
   terminarQuadro(g, c, dt, cxAntes, cyAntes);
   return g.pose;
 }
 
 // Antes do chute: dá o passo para o lado aberto, balança de leve o peso de uma perna para a outra e,
-// na corrida do cobrador, se firma (para de balançar) e dá o passinho de prontidão
-function antesDoChute(g, bola, dt, c, tempoAteChute) {
+// na corrida do cobrador, se firma (para de balançar) e dá o passinho de prontidão.
+// alvoX: onde os pés devem ficar (na falta, base.x; no pênalti, o passinho da dica vai e volta)
+function antesDoChute(g, bola, dt, c, tempoAteChute, alvoX = g.base.x) {
   g.tempo = 0;
   const sabe = Number.isFinite(tempoAteChute);
   const firma = sabe ? 1 - suave((tempoAteChute - PULINHO_DURACAO) / (PRONTIDAO - PULINHO_DURACAO)) : 0;
@@ -600,12 +710,12 @@ function antesDoChute(g, bola, dt, c, tempoAteChute) {
   if (g.relogio >= PASSO_INICIO || sabe) {
     const v = firma > 0 ? c.velocidadeLateral : PASSO_VELOCIDADE;
     const a = c.aceleracaoLateral * 0.6;
-    const dx = g.base.x - g.ancora;
+    const dx = alvoX - g.ancora;
     const desejada = Math.sign(dx) * Math.min(v, Math.sqrt(2 * a * Math.abs(dx)));
     g.vx += limitar(desejada - g.vx, -a * dt, a * dt);
     g.ancora += g.vx * dt;
-    if (Math.abs(g.base.x - g.ancora) < 2e-3 && Math.abs(g.vx) < 0.1) {
-      g.ancora = g.base.x;
+    if (Math.abs(alvoX - g.ancora) < 2e-3 && Math.abs(g.vx) < 0.1) {
+      g.ancora = alvoX;
       g.vx = 0;
     }
   }
@@ -617,6 +727,67 @@ function antesDoChute(g, bola, dt, c, tempoAteChute) {
   g.rotacaoY = Math.atan2(bola.pos.x - g.cx, Math.max(0.5, bola.pos.z - g.z));
   g.estado = 'pronto';
   g.bracos = 0.25 + 0.1 * firma;
+}
+
+// Pênalti, antes do chute: o "mind game". De tempos em tempos ele insinua um canto: aponta (a dica
+// aparece aos poucos e some) e dá um passinho para lá, voltando ao meio em seguida. Na corrida do
+// cobrador o gesto some e ele se firma no meio como na falta. Com atraso negativo, se joga às
+// cegas quando faltar −atraso s para o contato; daí o relógio corre (negativo) até o chute.
+// Nada aqui é sorteado: a dica e o canto vieram da criação.
+function antesDoPenalti(g, bola, dt, c, cp, tempoAteChute) {
+  const p = g.penalti;
+  const sabe = Number.isFinite(tempoAteChute);
+  if (p.disparou) {
+    g.tempo = sabe ? -tempoAteChute : g.tempo + dt;
+    g.prontidao = 1;
+    g.pulinho = 0;
+    avancarMergulho(g, bola, dt, c, g.tempo);
+    return;
+  }
+  if (sabe) {
+    p.dicaForca = Math.max(0, p.dicaForca - dt / GESTO_SOME);
+  } else if (g.relogio >= GESTO_INICIO) {
+    const u = (g.relogio - GESTO_INICIO) % GESTO_INTERVALO;
+    p.dicaForca = sino(u / GESTO_DURACAO);
+  }
+  const passinho = sabe ? 0 : p.dica * PASSO_DICA * suave(p.dicaForca / 0.6);
+  antesDoChute(g, bola, dt, c, tempoAteChute, g.base.x + passinho);
+  const atraso = atrasoDoPalpite(p, cp);
+  if (sabe && p.vai === 'lado' && atraso < 0 && tempoAteChute <= -atraso) {
+    // O relógio do quadro (-tempoAteChute) varia de um celular para outro; o mergulho parte do instante
+    // exato do atraso, para o replay repetir o goleiro depois do chute (quando o tempo anda em passos fixos)
+    g.tempo = -tempoAteChute;
+    g.erro = p.erro;
+    g.percepcao = limitar(c.percepcaoCurva + c.variacaoPercepcao * (2 * p.percepcao - 1), 0, 1);
+    dispararPalpite(g, c, cp, null, atraso);
+  }
+}
+
+// Pênalti: se joga no canto escolhido. Viu a bola indo para o lado dele (fora do meio): vai nela,
+// esticando um pouco além do que leu (a leitura curta ainda pega no braço; a longa, na mão).
+// Não viu a bola ainda, ou leu que ela vai para o outro lado ou para o meio: está comprometido e vai
+// no ponto do palpite mesmo assim. tChegada: quando a bola chega (lida), senão o que ele espera.
+function dispararPalpite(g, c, cp, L, t) {
+  const p = g.penalti;
+  const naBola = L && L.x * p.lado >= MEIO_PENALTI;
+  const alvo = naBola ? { x: L.x + p.lado * cp.alemDaLeitura, y: L.y } : { x: p.lado * cp.distanciaPalpite, y: cp.alturaPalpite };
+  const tChegada = L ? L.t : cp.tempoPalpite;
+  const plano = planejar(g, alvo, c, c.alturaMaxima);
+  comecarMergulho(g, plano, t, c, tChegada);
+  g.reagiu = true;
+  p.disparou = true;
+}
+
+// Pênalti: assim que a bola chega no plano dele (ou ele toca nela), diz se acertou. Quem se jogou
+// acertou se a bola foi para o lado dele, fora do meio; quem ficou acertou se a bola veio no meio.
+function conferirPalpite(g, bola) {
+  const p = g.penalti;
+  if (p.acertou !== null) return;
+  const tocou = Number.isFinite(g.ultimoContato);
+  if (!tocou && bola.pos.z > g.z + PLANO_MAOS) return;
+  const x = bola.cruzamento ? bola.cruzamento.x : bola.pos.x;
+  const noMeio = Math.abs(x) < MEIO_PENALTI;
+  p.acertou = p.vai === 'lado' ? !noMeio && Math.sign(x) === p.lado : noMeio;
 }
 
 // Freia os passos e volta para a altura de espera
@@ -884,6 +1055,7 @@ function montarPose(g, c) {
   const { U } = eixos(g);
   const maos = g.maos || calcularMaos(g, c);
   const pulo = g.pulinho || 0; // passinho de prontidão (só no desenho: 3 a 4 cm)
+  const p = g.penalti;
   return {
     x: g.cx - U.x * CENTRO,          // centro do quadril
     y: g.cy - U.y * CENTRO + pulo,
@@ -901,6 +1073,11 @@ function montarPose(g, c) {
       esquerda: { ...maos[1], y: maos[1].y + pulo },
     },
     centro: { x: g.cx, y: g.cy + pulo, z: g.z },
+    // Pênalti: o canto que ele insinua antes do chute (−1 esquerda, +1 direita de quem cobra; 0 = nenhum)
+    // e quanto o gesto aparece agora (0 a 1). Na falta, sempre 0.
+    dica: p && p.dicaForca > 0 ? p.dica : 0,
+    dicaForca: p ? p.dicaForca : 0,
+    penalti: p ? { vai: p.vai, lado: p.lado, dica: p.dica, disparou: p.disparou } : null,
   };
 }
 
@@ -970,7 +1147,7 @@ const DEVOLVE = { mao: 1, braco: 0.85, tronco: 0.75, cabeca: 0.9, perna: 0.9 };
 // e parte 'mao' | 'braco' | 'tronco' | 'cabeca' | 'perna' (no rebote que ele agarra depois: 'rebote').
 // Os toques seguidos de uma mesma espalmada (a outra mão, que ainda vem) contam como um só evento.
 export function colidirBolaGoleiro(bola, g, cfg = CONFIG) {
-  const c = lerCfg(cfg);
+  const c = cfgDoGoleiro(g, cfg);
   const r = (cfg && cfg.raioBola) ?? 0.11;
   const { pos, vel, giro } = bola;
 

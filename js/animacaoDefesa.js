@@ -303,6 +303,9 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
       proximoAjuste: 2.6,
       ultimoPasso: -1,
       modo: 'espera',
+      // Pênalti: a dica (ele insinua/aponta um lado antes da cobrança). lado/sl: braço que aponta
+      // ('E' = esquerda dele); k: peso do gesto agora; x, z: a trave apontada; toque: balanço da mão
+      dica: { lado: 'E', sl: 1, k: 0, x: 0, z: 0, toque: 0, toqueZ: 0 },
     };
     for (const pe of PES) {
       pe.estado = 'solto';
@@ -328,6 +331,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     estadosPes: { E: 'solto', D: 'solto' },
     parteMaisBaixa: '',
     bicos: { E: new THREE.Vector3(), D: new THREE.Vector3() },
+    dica: 0,              // 0..1: quanto o gesto da dica do pênalti aparece neste quadro
   };
 
   // ---------- Pés: passos, IK e calcanhar ----------
@@ -801,6 +805,11 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     pesoLocal.D = pesoLocal.E = 0;
     let bob = 0;
     const respira = Math.sin(t * 1.9);
+    // Dica do pênalti: o peso vem da lógica só na espera; fora dela o gesto some depressa
+    // (sem pulo na pose, mesmo se a lógica cortar de uma vez na largada do cobrador)
+    if (modo === 'espera') lerDica(gp);
+    else s.dica.k = s.dica.k < 0.002 ? 0 : aproximar(s.dica.k, 0, 10, dt);
+    saida.dica = s.dica.k;
 
     if (modo === 'espera' || modo === 'corrida') {
       // ----- Antes do chute -----
@@ -835,6 +844,7 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
         // Split step: pulinho de prontidão logo antes do pé na bola
         if (!s.split.feito && tc >= -0.2) comecarSplit(gp, yaw);
       }
+      if (s.dica.k > 0) aplicarDica(gp, bola);
       limiarPasso = 0.07;
     } else if (modo === 'dePe') {
       // ----- Depois do chute, de pé: posição de defesa, passos, pulo/agachada no meio, encaixe -----
@@ -1097,6 +1107,52 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
     }
   }
 
+  // ---------- Pênalti: a dica (insinua/aponta um lado antes da cobrança) ----------
+
+  // Lê a dica da lógica: pose.dica (−1 | 0 | +1 no eixo x do jogo; +1 = direita de quem cobra)
+  // e pose.dicaForca (0..1, quanto o gesto aparece agora). Ausentes valem 0: nada muda nas faltas.
+  function lerDica(gp) {
+    const d = s.dica;
+    const dica = Number.isFinite(gp.dica) ? Math.sign(gp.dica) : 0;
+    const forca = Number.isFinite(gp.dicaForca) ? limitar(gp.dicaForca, 0, 1) : 0;
+    if (dica === 0 || forca <= 0) {
+      d.k = 0;
+      return;
+    }
+    // Alvo: a trave daquele lado, na linha do goleiro
+    d.x = dica * 3.4;
+    d.z = gp.z;
+    // Ele está de frente para o cobrador: +x do jogo é a ESQUERDA dele. O braço vem de 'lateral'
+    // (que já leva em conta para onde o corpo está virado), nunca do sinal da dica direto.
+    d.lado = lateral(_v3.set(d.x, 0, d.z), gp.x, gp.z, gp.rotacaoY || 0) >= 0 ? 'E' : 'D';
+    d.sl = d.lado === 'E' ? 1 : -1;
+    d.k = forca;
+    // Balanço pequeno da mão apontada ("é ali, ó")
+    d.toque = 0.05 * Math.sin(s.tEspera * Math.PI * 2 * 1.1);
+    d.toqueZ = 0.04 * Math.sin(s.tEspera * Math.PI * 2 * 0.7 + 1);
+  }
+
+  // A dica na pose, na mão e no olhar, com peso s.dica.k (o braço esticado até a trave é montado
+  // em prepararMaos, por cima dos gestos da espera; se coexistir com o gesto da barreira, a dica vence)
+  function aplicarDica(gp, bola) {
+    const d = s.dica;
+    const k = d.k;
+    const sl = d.sl;
+    // O tronco abre um pouco para o lado apontado
+    pose.tronco.giro += 0.14 * sl * k;
+    pose.tronco.lado -= 0.04 * sl * k;
+    // A mão que aponta sobe à frente do peito (daqui ela vai até a trave)
+    const m = localMao[d.lado];
+    m.set(misturar(m.x, sl * 0.22, k), misturar(m.y, 0.4, k), misturar(m.z, 0.12, k));
+    // A outra fica quieta na frente da barriga (não bate palma nem ajeita a luva sozinha)
+    const o = localMao[d.lado === 'E' ? 'D' : 'E'];
+    o.set(misturar(o.x, -sl * 0.24, k), misturar(o.y, 0.12, k), misturar(o.z, 0.28, k));
+    // Provocação: olha para o cobrador (a cara dele, atrás da bola), não para a trave
+    const bx = bola && bola.pos ? bola.pos.x : gp.x;
+    const bz = bola && bola.pos ? bola.pos.z : gp.z + 11;
+    olhar.set(misturar(olhar.x, bx, k), misturar(olhar.y, 1.65, k), misturar(olhar.z, bz + 1.8, k));
+  }
+
   // ---------- Split step ----------
 
   function comecarSplit(gp, yaw) {
@@ -1234,6 +1290,17 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
 
   // ---------- Mãos ----------
 
+  // Braço esticado do ombro na direção do ponto (x, y, z) do mundo: leva o alvo da mão (_v, mundo)
+  // até lá com peso k
+  function esticarBraco(lado, x, y, z, k) {
+    const ombro = ombros[lado];
+    ombro.updateWorldMatrix(true, false);
+    _v2.setFromMatrixPosition(ombro.matrixWorld);
+    _v3.set(x, y, z).sub(_v2).normalize();
+    _v3.multiplyScalar(ALCANCE_BRACO * 0.92).add(_v2);
+    _v.lerp(_v3, k);
+  }
+
   function prepararMaos(gp, pesoLogica, bola, estado) {
     const maos = gp.maos;
     for (const lado of LADOS) {
@@ -1272,14 +1339,13 @@ export function criarAnimadorGoleiro(personagem, opcoes = {}) {
         _v.copy(localMao[lado]);
         J.tronco.updateWorldMatrix(true, false);
         J.tronco.localToWorld(_v);
-        if (s.apontar && s.apontar.k > 0 && s.apontar.lado === lado && s.modo === 'espera') {
+        const d = s.dica;
+        if (d.k > 0 && d.lado === lado) {
+          // Dica do pênalti: braço esticado apontando a trave daquele lado
+          esticarBraco(lado, d.x, 1.5 + d.toque, d.z + d.toqueZ, d.k);
+        } else if (s.apontar && s.apontar.k > 0 && s.apontar.lado === lado && s.modo === 'espera') {
           // Apontando para a barreira: braço esticado na direção dela
-          const ombro = ombros[lado];
-          ombro.updateWorldMatrix(true, false);
-          _v2.setFromMatrixPosition(ombro.matrixWorld);
-          _v3.set(s.apontar.x, 1.5 + s.apontar.toque, s.apontar.z).sub(_v2).normalize();
-          _v3.multiplyScalar(ALCANCE_BRACO * 0.92).add(_v2);
-          _v.lerp(_v3, s.apontar.k);
+          esticarBraco(lado, s.apontar.x, 1.5 + s.apontar.toque, s.apontar.z, s.apontar.k);
         }
         if (w > 0) _v.lerp(alvoMao[lado], w);
         alvoMao[lado].copy(_v);

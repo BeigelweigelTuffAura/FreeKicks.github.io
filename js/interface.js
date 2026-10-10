@@ -1,7 +1,7 @@
 // Interface (HUD): cartão do cobrador, lista "Quem bate?", resultado, placar e botões do topo.
 // Só mexe na página (HTML); não sabe nada de 3D nem de física.
 
-import { overall } from './elenco.js?v=6';
+import { overall } from './elenco.js?v=7';
 
 const ATRIBUTOS = [
   ['FOR', 'Força'],
@@ -45,7 +45,12 @@ function selos(jogador) {
   return pe + especiais;
 }
 
-export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarFixar }) {
+const EXPLICA_LISTA = {
+  falta: 'Ordenados pela nota para ESTA falta: distância, lado do campo, pé bom e estilo de cada um. O overall é só referência.',
+  penalti: 'Ordenados pela nota para pênalti: precisão e frieza mandam, a força ajuda. O overall é só referência.',
+};
+
+export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarFixar, aoTrocarModo = () => {} }) {
   const cartao = $('cartao-cobrador');
   const lista = $('lista-cobradores');
   const itens = $('lista-itens');
@@ -66,7 +71,7 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
         </div>
         <div class="cartao-ovr"><b>${overall(jogador)}</b><small>OVR</small></div>
       </div>
-      <div class="cartao-nota">${sugerido ? 'O mais indicado · ' : ''}nota para esta falta <b>${Math.round(nota)}</b> · <u>trocar</u></div>`;
+      <div class="cartao-nota">${sugerido ? 'O mais indicado · ' : ''}nota para ${modoAtual === 'penalti' ? 'pênalti' : 'esta falta'} <b>${Math.round(nota)}</b> · <u>trocar</u></div>`;
   }
 
   function desenharLista() {
@@ -80,7 +85,7 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
           <span class="atributos">${barrasDeAtributos(jogador)}</span>
         </span>
         <span class="item-notas">
-          <b style="color:${corDaNota(nota)}">${Math.round(nota)}</b><small>esta falta</small>
+          <b style="color:${corDaNota(nota)}">${Math.round(nota)}</b><small>${modoAtual === 'penalti' ? 'pênalti' : 'esta falta'}</small>
           <em>${overall(jogador)} OVR</em>
         </span>
       </button>`).join('');
@@ -115,6 +120,15 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
     e.currentTarget.blur();
     aoAlternarFixar();
   });
+  // Modos de jogo: Treino (falta sorteada), Desafio do Dia e Pênaltis
+  const botoesModo = Array.from(document.querySelectorAll('#modos button'));
+  let modoAtual = 'treino';
+  for (const b of botoesModo) {
+    b.addEventListener('click', (e) => {
+      e.currentTarget.blur();
+      aoTrocarModo(b.dataset.modo);
+    });
+  }
 
   return {
     // opcoes: lista ordenada [{ jogador, nota }] (a primeira é a sugerida)
@@ -124,12 +138,26 @@ export function criarInterface({ aoEscolherCobrador, aoAlternarMudo, aoAlternarF
       desenharCartao();
     },
     listaAberta: () => !lista.hidden,
-    // rival: nome do time cujas cores a barreira e o goleiro vestem (opcional)
-    mostrarFalta({ distancia, angulo }, rival = '') {
-      const lado = angulo > 4 ? 'pela direita' : angulo < -4 ? 'pela esquerda' : 'frontal';
+    // rival: nome do time cujas cores a barreira e o goleiro vestem (opcional).
+    // desafio: número da falta no Desafio do Dia (opcional). falta.penalti: é pênalti.
+    mostrarFalta({ distancia, angulo, penalti = false }, rival = '', desafio = 0) {
       const contra = rival ? ` · vs ${rival}` : '';
-      $('info').innerHTML = `Falta · <b>${Math.round(distancia)} m</b><br><small>${lado}${contra}</small>`;
+      if (penalti) {
+        $('info').innerHTML = `Pênalti<br><small>na marca, sem barreira${contra}</small>`;
+        return;
+      }
+      const lado = angulo > 4 ? 'pela direita' : angulo < -4 ? 'pela esquerda' : 'frontal';
+      const titulo = desafio ? `Falta ${desafio} do dia` : 'Falta';
+      $('info').innerHTML = `${titulo} · <b>${Math.round(distancia)} m</b><br><small>${lado}${contra}</small>`;
     },
+    // Marca o modo ativo nos botões; o botão de falta fixa só existe no treino
+    definirModo(modo) {
+      modoAtual = modo;
+      for (const b of botoesModo) b.classList.toggle('ativo', b.dataset.modo === modo);
+      botaoFixar.hidden = modo !== 'treino';
+      $('lista-explica').textContent = modo === 'penalti' ? EXPLICA_LISTA.penalti : EXPLICA_LISTA.falta;
+    },
+    modo: () => modoAtual,
     mostrarPlacar(texto) {
       $('placar').textContent = texto;
     },

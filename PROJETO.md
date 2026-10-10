@@ -80,11 +80,41 @@ As mudanças valem na hora. Um botão "copiar valores" gera o texto com a config
 
 Motivo: o que define se o jogo é bom é a sensação do chute, e isso se descobre jogando e ajustando, não discutindo.
 
-## Modo de jogo (decisão de 9/10/2026)
+## Modos de jogo (decisão de 9/10/2026, ampliada em 10/10/2026)
 
-Um modo só: **treino livre com rival**. A cada falta o jogo sorteia a posição e um cobrador do Elenco Lendário
+A base é o **treino livre com rival**. A cada falta o jogo sorteia a posição e um cobrador do Elenco Lendário
 (dá para trocar na lista, que mostra o mais indicado). O cobrador veste a camisa do clube em que foi marcante;
 a barreira e o goleiro vestem as cores de um rival desse clube. Placar de gols na sessão, replay e vídeo do lance.
+
+Em 10/10/2026, com amigos e família jogando pelo link, entraram dois modos pequenos em cima da mesma mecânica
+(botões no alto da tela; o jogo abre no último modo usado):
+
+- **Treino**: o de sempre (falta sorteada, botão de falta fixa).
+- **Desafio do Dia**: as mesmas faltas, na mesma ordem, para todo mundo no mesmo dia. A data vira a semente do
+  sorteio (falta, cobrador sugerido e até o erro da mira saem dela), então não precisa de servidor. Vale a maior
+  sequência de gols: errou, volta para a primeira falta do dia. A melhor sequência de hoje e o recorde ficam
+  salvos no aparelho. O botão **Compartilhar** monta um texto (nome, gols seguidos, link) para o grupo do
+  WhatsApp: o "ranking" é a conversa, no modelo do Wordle. A pressão (erro a mais; a frieza do cobrador corta
+  parte) cresce com a sequência, que é o lance decisivo deste jogo.
+  Uma tabela de ranking de verdade, entre celulares, exige guardar dados na internet (um serviço como Supabase
+  ou Firebase, com plano grátis, ou um servidor próprio). Decidido: só se o grupo pedir depois de usar o
+  compartilhar; e com a ressalva de que, rodando tudo no celular, qualquer um consegue mandar um número falso.
+- **Pênaltis**: bola na marca, sem barreira, mesma mecânica de contato e força (pressão fixa). O goleiro decide
+  antes do chute, com sorteio de semente (o replay repete): em 80% das vezes vai num canto; nos outros 20%
+  fica e só pega bola fraca ou no meio. Antes da corrida ele faz "mind game": aponta um canto; quando vai,
+  em 65% das vezes vai para o canto que apontou. Ele tem memória: se você bate seguidas vezes no mesmo lado,
+  passa a ir mais para lá (com três seguidas, ~85%). É um goleiro bom: quando acerta o canto, pega a bola de
+  meia altura e a bola perto dele; só a bola forte e no canto entra. Os números estão no painel.
+  A sugestão de cobrador no pênalti usa precisão, frieza e força (não curva nem queda).
+
+Ideia descartada no desenho do pênalti: "aponta um lado e vai para lá em 50% das vezes". Meio a meio não é
+informação nenhuma; o jogador ignora em duas tentativas. Por isso a dica é verdadeira na maioria das vezes e a
+memória pune a repetição.
+
+**Câmera do replay (10/10/2026):** lateral, do lado direito de quem cobra, sempre o mesmo lado, com o gol à
+direita da tela, como no treino do PES de PS2. No celular em pé cobrador e gol não cabem juntos, então ela
+anda junto com a bola e olha para um ponto entre a bola e o gol, como a câmera lateral da TV. A câmera atrás do
+gol continua disponível no painel, para comparar.
 
 ~~Modo Temporada (tela inicial, escolha de camisa, escalação, liga de 8 times com 7 jogos de 3 faltas,
 especialista do banco, tabela e recorde)~~: **retirado do escopo**. Decisão de quem conduz o projeto: o jogo é
@@ -167,9 +197,12 @@ Várias ligas, duelo entre jogadores, multiplayer, moedas, loja, anúncios, comp
 8. ~~Modo Temporada.~~ Retirado do escopo (ver "Modo de jogo").
 9. ~~Acabamento: som, replay do golaço e nome da jogada.~~ Feito (etapa 5: som sintetizado, rede de pano, câmera lenta; etapa 6: replay com câmera atrás do gol e vídeo para salvar/compartilhar).
 10. Rodada de ajuste fino jogando no celular. (Em andamento: etapa 6 veio do primeiro teste no iPhone.)
-11. Depois: transformar em PWA para instalar na tela inicial do celular.
+11. ~~Etapa 7: câmera lateral do replay, Desafio do Dia (com compartilhar) e modo Pênaltis.~~ Feito (10/10/2026).
+12. Depois: transformar em PWA para instalar na tela inicial do celular.
 
-Estado em 9/10/2026: publicado `v0.1 · etapa 6`. O jogo está completo no escopo decidido; agora é ajuste fino.
+Estado em 10/10/2026: publicado `v0.1 · etapa 7`. Amigos e família já jogam pelo link (o critério de sucesso
+da v0.1 está sendo cumprido na prática). Agora: ajuste fino dos três modos no celular, principalmente a câmera
+lateral e a sensação do goleiro de pênalti.
 
 Ideias anotadas (não construir sem combinar): tipos de rede para escolher (véu de noiva, caixote, triangular).
 A rede é uma simulação presa ao formato do gol e à física da bola na rede; trocar o formato é refazer essa parte.
@@ -194,7 +227,8 @@ Eu e mais 5 pessoas cobramos 20 faltas seguidas no celular. Se quiserem bater a 
 - **Desafio do Mestre:** cada lenda tem um desafio próprio que ensina sua técnica (folha seca, sem rotação, por baixo da barreira).
 - **Clima:** vento e chuva em alguns jogos.
 - **Alvos:** homenagem ao Click Jogos, com placas no gol e combo por acertos seguidos.
-- **Falta do Dia:** a mesma cobrança para todos, com ranking diário.
+- ~~**Falta do Dia:** a mesma cobrança para todos, com ranking diário.~~ Virou o Desafio do Dia (etapa 7);
+  a tabela de ranking entre celulares ficou para quando houver serviço de dados (ver "Modos de jogo").
 - **Sobrevivência:** cobrar até errar.
 - **Faltas clássicas recriadas,** sem citar quem bateu.
 - **Economia:** moeda ganha jogando, gasta só em itens visuais (bola, chuteira, uniforme fictício, estádio, rastro da bola).

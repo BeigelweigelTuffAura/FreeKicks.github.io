@@ -219,3 +219,20 @@ export function colidirBolaBarreira(bola, b, cfg = {}) {
   b._bola = bola;
   return bateu;
 }
+
+// Sem barreira (pênalti): o mesmo formato que montarBarreira devolve, com a lista de jogadores vazia,
+// para o resto do jogo (atualizar, colidir, bonecos) seguir sem caso especial.
+export function semBarreira(posBola) {
+  return {
+    jogadores: [],
+    lado: 0,
+    pula: false,
+    bola: { x: posBola.x, z: posBola.z },
+    distancia: 0,
+    direcao: { x: 0, z: -1 },
+    batidas: 0,
+    ultimaBatida: null,
+    _anterior: null,
+    _bola: null,
+  };
+}
