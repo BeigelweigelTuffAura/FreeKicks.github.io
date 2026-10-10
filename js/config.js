@@ -1,7 +1,7 @@
 // Todos os números ajustáveis do jogo ficam aqui.
 // Unidades: metros, segundos, graus.
 
-export const VERSAO = 'v0.1 · etapa 8';
+export const VERSAO = 'v0.1 · etapa 8.1';
 
 export const CONFIG = {
   // Mundo
@@ -150,8 +150,8 @@ export const CONFIG = {
   // Ranking do dia (Desafio do Dia): guardado num projeto Supabase (banco de dados na internet com
   // acesso por endereço + chave pública). Vazio = ranking desligado; a melhor sequência fica só no aparelho.
   ranking: {
-    url: '',              // ex.: 'https://abcdefgh.supabase.co'
-    chave: '',            // a chave "anon" (pública) do projeto
+    url: 'https://guxfyyswjdwfipovslxh.supabase.co',
+    chave: 'sb_publishable__NHNsaWoQkeB7a4UEmVMyw_NPqR83pJ', // chave pública ("publishable"): só lê a lista e entra nela
     tabela: 'ranking',
   },
 

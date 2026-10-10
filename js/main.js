@@ -1,20 +1,20 @@
 import * as THREE from 'three';
-import { CONFIG, VERSAO } from './config.js?v=8';
-import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=8';
-import { ELENCO, sugerirCobradores } from './elenco.js?v=8';
-import { criarCenario, PADRAO_CENARIO } from './estadio.js?v=8';
-import { montarBarreira, semBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=8';
-import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO, PADRAO_PENALTI } from './goleiro.js?v=8';
+import { CONFIG, VERSAO } from './config.js?v=9';
+import { criarBola, chutar, passo, noChao, coneDeErro, preverTecnica } from './physics.js?v=9';
+import { ELENCO, sugerirCobradores } from './elenco.js?v=9';
+import { criarCenario, PADRAO_CENARIO } from './estadio.js?v=9';
+import { montarBarreira, semBarreira, atualizarBarreira, colidirBolaBarreira, PADRAO_BARREIRA } from './barreira.js?v=9';
+import { criarGoleiro, atualizarGoleiro, colidirBolaGoleiro, PADRAO_GOLEIRO, PADRAO_PENALTI } from './goleiro.js?v=9';
 import {
   criarPersonagem, criarSombraBlob, criarCobranca, PADRAO_COBRANCA,
   visualAdversario, VISUAL_GOLEIRO_ADVERSARIO, UNIFORMES, poseChute, poseComemoracao, poseLamento, misturarPoses,
-} from './jogadores.js?v=8';
-import { criarAnimadorGoleiro, criarAnimadorBarreira } from './animacaoDefesa.js?v=8';
-import { criarAudio, PADRAO_AUDIO } from './audio.js?v=8';
-import { criarGravador, salvarVideo } from './replay.js?v=8';
-import { criarInterface } from './interface.js?v=8';
-import { criarPainel } from './painel.js?v=8';
-import { criarRanking } from './ranking.js?v=8';
+} from './jogadores.js?v=9';
+import { criarAnimadorGoleiro, criarAnimadorBarreira } from './animacaoDefesa.js?v=9';
+import { criarAudio, PADRAO_AUDIO } from './audio.js?v=9';
+import { criarGravador, salvarVideo } from './replay.js?v=9';
+import { criarInterface } from './interface.js?v=9';
+import { criarPainel } from './painel.js?v=9';
+import { criarRanking } from './ranking.js?v=9';
 
 // Os padrões de goleiro, barreira, cobrador, som e cenário moram nos próprios módulos;
 // entram no CONFIG aqui (o que estiver escrito no config.js tem prioridade)

@@ -208,7 +208,7 @@ Várias ligas, duelo entre jogadores, multiplayer, moedas, loja, anúncios, comp
     do Supabase entrarem em `config.js`.
 13. Depois: transformar em PWA para instalar na tela inicial do celular.
 
-Estado em 10/10/2026: publicado `v0.1 · etapa 8`. Amigos e família já jogam pelo link (o critério de sucesso
+Estado em 10/10/2026: publicado `v0.1 · etapa 8.1` (ranking ligado ao projeto Supabase do dono). Amigos e família já jogam pelo link (o critério de sucesso
 da v0.1 está sendo cumprido na prática). Agora: ligar o ranking (conta Supabase) e ajuste fino no celular.
 
 Ideias anotadas (não construir sem combinar): tipos de rede para escolher (véu de noiva, caixote, triangular).
