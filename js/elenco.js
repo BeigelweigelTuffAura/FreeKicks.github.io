@@ -188,7 +188,7 @@ export const ELENCO = [
     visual: { pele: PELE.parda, cabelo: { estilo: 'careca', cor: '#1e1610' }, barba: 'cavanhaque', corBarba: '#1e1610', faixa: null, altura: 1.75, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
   },
   {
-    numero: 17, apelido: 'Estrada', nome: 'Mateo Estrada', nomeCamisa: 'GERARD', referencia: 'Steven Gerrard', posicao: 'MC', pe: 'D', titular: false,
+    numero: 17, apelido: 'Estrada', nome: 'Mateo Estrada', nomeCamisa: 'Estrada', referencia: 'Steven Gerrard', posicao: 'MC', pe: 'D', titular: false,
     atributos: { FOR: 87, CUR: 85, QUE: 76, PRE: 88, FRI: 93 },
     especiais: [], estilo: 'Bomba de longe',
     uniforme: { clube: 'Liverpool', padrao: 'liso', camisa: '#c8102e', cores: [], calcao: '#c8102e', meiao: '#c8102e', numero: '#ffffff', gola: '#ffffff' },
