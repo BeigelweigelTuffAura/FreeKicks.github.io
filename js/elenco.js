@@ -43,23 +43,23 @@ export const ELENCO = [
   // ---------- Titulares ----------
   {
     numero: 1, apelido: 'Lamas', nome: 'Santiago Lamas', nomeCamisa: 'Lamas', referencia: 'Rogério Ceni', posicao: 'GOL', pe: 'D', titular: true,
-    atributos: { FOR: 84, CUR: 90, QUE: 76, PRE: 96, FRI: 94 },
+    atributos: { FOR: 85, CUR: 90, QUE: 76, PRE: 90, FRI: 94 },
     especiais: [], estilo: 'O goleiro artilheiro',
     uniforme: { clube: 'São Paulo (goleiro)', padrao: 'faixa', camisa: '#2a2e35', cores: ['#d0021b', '#ffffff', '#111111'], calcao: '#2a2e35', meiao: '#2a2e35', numero: '#ffffff', gola: '#d0021b' },
     cobranca: { postura: 'concentrado', distancia: 4.2, angulo: 28, passos: 6, ritmo: 1.0, batida: 'chapa', braco: 'normal', assinatura: 'Sai do gol, corrida longa e batida colocada' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'curto', cor: '#3b2a1e' }, barba: 'nenhuma', faixa: null, altura: 1.88, porte: 'normal', coxas: 'normais', chuteira: '#111111', goleiro: true },
   },
   {
-    numero: 2, apelido: 'Poncho', nome: 'Alfonso Cantu', nomeCamisa: 'Poncho', referencia: 'Daniel Alves', posicao: 'LD', pe: 'D', titular: true,
-    atributos: { FOR: 89, CUR: 80, QUE: 80, PRE: 89, FRI: 83 },
+    numero: 6, apelido: 'Poncho', nome: 'Alfonso Cantu', nomeCamisa: 'Poncho', referencia: 'Daniel Alves', posicao: 'LD', pe: 'D', titular: true,
+    atributos: { FOR: 92, CUR: 94, QUE: 80, PRE: 92, FRI: 90 },
     especiais: [], estilo: 'Lateral que arrisca',
-    uniforme: { clube: 'Barcelona', padrao: 'listras', camisa: '#a50044', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
+    uniforme: { clube: 'Ac Milan', padrao: 'listras', camisa: '#ff0000', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
     cobranca: { postura: 'normal', distancia: 2.4, angulo: 32, passos: 4, ritmo: 1.1, batida: 'chapa', braco: 'normal', assinatura: 'Corridinha curta e ligeira' },
     visual: { pele: PELE.parda, cabelo: { estilo: 'curto', cor: '#e8d27a' }, barba: 'rala', corBarba: '#2a1d14', faixa: null, altura: 1.72, porte: 'magro', coxas: 'normais', chuteira: '#f7d84a' },
   },
   {
     numero: 5, apelido: 'Robe', nome: 'Roberto Garza', nomeCamisa: 'Robe', referencia: 'Beckenbauer', posicao: 'ZAG', pe: 'D', titular: true,
-    atributos: { FOR: 99, CUR: 68, QUE: 80, PRE: 55, FRI: 93 },
+    atributos: { FOR: 99, CUR: 70, QUE: 80, PRE: 60, FRI: 93 },
     especiais: [], estilo: 'O capitão elegante',
     uniforme: { clube: 'Alemanha', padrao: 'liso', camisa: '#f5f5f5', cores: [], calcao: '#111111', meiao: '#f5f5f5', numero: '#111111', gola: '#111111' },
     cobranca: { postura: 'ereto', distancia: 2.6, angulo: 25, passos: 4, ritmo: 0.9, batida: 'peito', braco: 'normal', assinatura: 'Postura elegante, de cabeça erguida' },
@@ -67,15 +67,15 @@ export const ELENCO = [
   },
   {
     numero: 4, apelido: 'Galvan', nome: 'David Galvan', nomeCamisa: 'Galvan', referencia: 'Ronald Koeman', posicao: 'ZAG', pe: 'D', titular: true,
-    atributos: { FOR: 75, CUR: 90, QUE: 75, PRE: 95, FRI: 97 },
+    atributos: { FOR: 80, CUR: 88, QUE: 75, PRE: 90, FRI: 97 },
     especiais: [], estilo: 'O zagueiro canhão',
-    uniforme: { clube: 'Barcelona', padrao: 'listras', camisa: '#a50044', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
+    uniforme: { clube: 'Rayados', padrao: 'listras', camisa: '#1B2741', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
     cobranca: { postura: 'ereto', distancia: 4.2, angulo: 12, passos: 6, ritmo: 1.15, batida: 'pancada', braco: 'normal', assinatura: 'Corrida reta e longa para a pancada' },
     visual: { pele: PELE.claraRosada, cabelo: { estilo: 'curto', cor: '#e2c27a' }, barba: 'nenhuma', faixa: null, altura: 1.81, porte: 'forte', coxas: 'normais', chuteira: '#111111' },
   },
   {
     numero: 3, apelido: 'Jose', nome: 'Jose Andres', nomeCamisa: 'Jose A.', referencia: 'Roberto Carlos', posicao: 'LE', pe: 'E', titular: true,
-    atributos: { FOR: 75, CUR: 97, QUE: 76, PRE: 66, FRI: 90 },
+    atributos: { FOR: 70, CUR: 75, QUE: 76, PRE: 85, FRI: 89 },
     especiais: ['trivela'], estilo: 'O canhão de efeito',
     uniforme: { clube: 'Real Madrid', padrao: 'liso', camisa: '#f8f8f8', cores: [], calcao: '#f8f8f8', meiao: '#f8f8f8', numero: '#3b2a70', gola: '#d4af37' },
     cobranca: { postura: 'agachado', distancia: 5.5, angulo: 18, passos: 8, ritmo: 1.35, batida: 'trivela', braco: 'aberto', assinatura: 'Corrida enorme e explosão de três dedos' },
@@ -83,7 +83,7 @@ export const ELENCO = [
   },
   {
     numero: 21, apelido: 'Maxi', nome: 'Maxiemiliano Garza', nomeCamisa: 'Maxi', referencia: 'Andrea Pirlo', posicao: 'MC', pe: 'D', titular: true,
-    atributos: { FOR: 85, CUR: 90, QUE: 97, PRE: 90, FRI: 96 },
+    atributos: { FOR: 85, CUR: 90, QUE: 93, PRE: 90, FRI: 90 },
     especiais: ['folhaSeca'], estilo: 'A queda maldita',
     uniforme: { clube: 'Milan', padrao: 'listras', camisa: '#c4142b', cores: ['#151515'], calcao: '#ffffff', meiao: '#151515', numero: '#ffffff', gola: '#151515' },
     cobranca: { postura: 'calmo', distancia: 1.8, angulo: 30, passos: 3, ritmo: 0.75, batida: 'semGiro', braco: 'normal', assinatura: 'Quase caminhando, sem pressa nenhuma' },
@@ -91,15 +91,15 @@ export const ELENCO = [
   },
   {
     numero: 23, apelido: 'Fer', nome: 'Fernando Treviño', nomeCamisa: 'Fer', referencia: 'David Beckham', posicao: 'MD', pe: 'D', titular: true,
-    atributos: { FOR: 70, CUR: 75, QUE: 89, PRE: 98, FRI: 96 },
+    atributos: { FOR: 75, CUR: 75, QUE: 89, PRE: 90, FRI: 89 },
     especiais: [], estilo: 'O mestre da curva',
-    uniforme: { clube: 'Manchester United', padrao: 'liso', camisa: '#da291c', cores: [], calcao: '#ffffff', meiao: '#111111', numero: '#ffffff', gola: '#ffffff' },
+    uniforme: { clube: 'Madrid', padrao: 'liso', camisa: '#d2a61d', cores: [], calcao: '#ffffff', meiao: '#111111', numero: '#ffffff', gola: '#ffffff' },
     cobranca: { postura: 'bracosAbertos', distancia: 3.6, angulo: 48, passos: 4, ritmo: 0.95, batida: 'chapa', braco: 'aberto', assinatura: 'Chega de longe, passos largos e braço aberto' },
     visual: { pele: PELE.clara, cabelo: { estilo: 'moicano', cor: '#e0c070' }, barba: 'nenhuma', faixa: null, altura: 1.80, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
   },
   {
     numero: 10, apelido: 'Beto', nome: 'Beto Treviño', nomeCamisa: 'Beto', referencia: 'Zico', posicao: 'MEI', pe: 'D', titular: true,
-    atributos: { FOR: 79, CUR: 97, QUE: 94, PRE: 85, FRI: 96 },
+    atributos: { FOR: 79, CUR: 80, QUE: 94, PRE: 85, FRI: 96 },
     especiais: [], estilo: 'Colocação perfeita',
     uniforme: { clube: 'Flamengo', padrao: 'aros', camisa: '#c4142b', cores: ['#111111'], calcao: '#ffffff', meiao: '#c4142b', numero: '#ffffff', gola: '#111111' },
     cobranca: { postura: 'normal', distancia: 2.2, angulo: 35, passos: 3, ritmo: 0.95, batida: 'chapa', braco: 'normal', assinatura: 'Três passos e a bola no ângulo' },
@@ -107,7 +107,7 @@ export const ELENCO = [
   },
   {
     numero: 80, apelido: 'Daniel', nome: 'Daniel Gonzales', nomeCamisa: 'Dani', referencia: 'Ronaldinho', posicao: 'ME', pe: 'D', titular: true,
-    atributos: { FOR: 82, CUR: 95, QUE: 90, PRE: 94, FRI: 91 },
+    atributos: { FOR: 82, CUR: 85, QUE: 90, PRE: 87, FRI: 90 },
     especiais: [], estilo: 'Mágica por cima ou por baixo',
     uniforme: { clube: 'Barcelona', padrao: 'listras', camisa: '#a50044', cores: ['#004d98'], calcao: '#004d98', meiao: '#004d98', numero: '#f7d84a', gola: '#004d98' },
     cobranca: { postura: 'lateral', distancia: 0.9, angulo: 70, passos: 2, ritmo: 0.8, batida: 'chapa', braco: 'normal', assinatura: 'Parado de lado, quase sem corrida' },
@@ -133,15 +133,15 @@ export const ELENCO = [
   // ---------- Reservas ----------
   {
     numero: 12, apelido: 'Muñoz', nome: 'Gabriel Muñoz', nomeCamisa: 'Muñoz', referencia: 'José Luis Chilavert', posicao: 'GOL', pe: 'E', titular: false,
-    atributos: { FOR: 60, CUR: 76, QUE: 74, PRE: 86, FRI: 50 },
+    atributos: { FOR: 83, CUR: 80, QUE: 74, PRE: 86, FRI: 61 },
     especiais: [], estilo: 'Goleiro de pé pesado',
     uniforme: { clube: 'Vélez (goleiro)', padrao: 'v', camisa: '#1d3f8f', cores: ['#ffffff'], calcao: '#1d3f8f', meiao: '#1d3f8f', numero: '#ffffff', gola: '#ffffff' },
     cobranca: { postura: 'ereto', distancia: 4.5, angulo: 20, passos: 6, ritmo: 1.05, batida: 'peito', braco: 'normal', assinatura: 'Atravessa o campo e solta a bomba' },
     visual: { pele: PELE.bronzeada, cabelo: { estilo: 'curto', cor: '#1b1410' }, barba: 'nenhuma', faixa: null, altura: 1.88, porte: 'forte', coxas: 'normais', chuteira: '#111111', goleiro: true },
   },
   {
-    numero: 13, apelido: 'Gabriel', nome: 'Gabriel', nomeCamisa: 'Gabo', referencia: 'Nelinho', posicao: 'LD', pe: 'D', titular: false,
-    atributos: { FOR: 70, CUR: 89, QUE: 75, PRE: 35, FRI: 88 },
+    numero: 13, apelido: 'Gabriel', nome: 'Gabriel', nomeCamisa: 'Jumbo', referencia: 'Nelinho', posicao: 'LD', pe: 'D', titular: false,
+    atributos: { FOR: 85, CUR: 85, QUE: 75, PRE: 60, FRI: 88 },
     especiais: [''], estilo: 'nada jajajajaj',
     uniforme: { clube: 'Cruzeiro', padrao: 'liso', camisa: '#0033a0', cores: [], calcao: '#ffffff', meiao: '#ffffff', numero: '#ffffff', gola: '#ffffff' },
     cobranca: { postura: 'normal', distancia: 3.2, angulo: 15, passos: 5, ritmo: 1.1, batida: 'trivela', braco: 'normal', assinatura: 'Trivela de três dedos' },
@@ -181,7 +181,7 @@ export const ELENCO = [
   },
   {
     numero: 20, apelido: 'Cana', nome: 'Fer Canavati', nomeCamisa: 'Cana', referencia: 'Marcos Assunção', posicao: 'MC', pe: 'D', titular: false,
-    atributos: { FOR: 70, CUR: 95, QUE: 90, PRE: 97, FRI: 92 },
+    atributos: { FOR: 70, CUR: 80, QUE: 90, PRE: 80, FRI: 88 },
     especiais: [], estilo: 'Bola parada é gol',
     uniforme: { clube: 'Palmeiras', padrao: 'liso', camisa: '#006437', cores: [], calcao: '#ffffff', meiao: '#006437', numero: '#ffffff', gola: '#ffffff' },
     cobranca: { postura: 'calmo', distancia: 2.0, angulo: 30, passos: 3, ritmo: 0.9, batida: 'chapa', braco: 'normal', assinatura: 'Corrida curta e bola na gaveta' },
@@ -189,7 +189,7 @@ export const ELENCO = [
   },
   {
     numero: 17, apelido: 'Estrada', nome: 'Mateo Estrada', nomeCamisa: 'GERARD', referencia: 'Steven Gerrard', posicao: 'MC', pe: 'D', titular: false,
-    atributos: { FOR: 85, CUR: 83, QUE: 76, PRE: 85, FRI: 97 },
+    atributos: { FOR: 87, CUR: 85, QUE: 76, PRE: 88, FRI: 93 },
     especiais: [], estilo: 'Bomba de longe',
     uniforme: { clube: 'Liverpool', padrao: 'liso', camisa: '#c8102e', cores: [], calcao: '#c8102e', meiao: '#c8102e', numero: '#ffffff', gola: '#ffffff' },
     cobranca: { postura: 'ereto', distancia: 3.4, angulo: 18, passos: 5, ritmo: 1.15, batida: 'pancada', braco: 'normal', assinatura: 'Corrida firme e bomba' },
@@ -197,7 +197,7 @@ export const ELENCO = [
   },
   {
     numero: 19, apelido: 'Muela', nome: 'Eugenio Muela', nomeCamisa: 'Muela', referencia: 'Diego Maradona', posicao: 'MEI', pe: 'E', titular: false,
-    atributos: { FOR: 90, CUR: 97, QUE: 92, PRE: 97, FRI: 95 },
+    atributos: { FOR: 90, CUR: 95, QUE: 92, PRE: 94, FRI: 95 },
     especiais: [], estilo: 'Canhota de ouro',
     uniforme: { clube: 'Argentina', padrao: 'listras', camisa: '#75aadb', cores: ['#ffffff'], calcao: '#111111', meiao: '#ffffff', numero: '#111111', gola: '#111111' },
     cobranca: { postura: 'curvado', distancia: 1.6, angulo: 40, passos: 3, ritmo: 1.1, batida: 'chapa', braco: 'normal', assinatura: 'Pertinho da bola, canhota mágica' },
@@ -205,7 +205,7 @@ export const ELENCO = [
   },
   {
     numero: 11, apelido: 'Raul', nome: 'Bortoni', nomeCamisa: 'Bortoni', referencia: 'Neymar', posicao: 'ATA', pe: 'D', titular: false,
-    atributos: { FOR: 85, CUR: 90, QUE: 86, PRE: 85, FRI: 88 },
+    atributos: { FOR: 90, CUR: 90, QUE: 86, PRE: 90, FRI: 90 },
     especiais: [], estilo: 'Ousadia e efeito',
     uniforme: { clube: 'Santos', padrao: 'liso', camisa: '#ffffff', cores: [], calcao: '#ffffff', meiao: '#ffffff', numero: '#111111', gola: '#111111' },
     cobranca: { postura: 'normal', distancia: 2.2, angulo: 35, passos: 4, ritmo: 1.3, batida: 'chapa', braco: 'normal', assinatura: 'Passinhos picados até a bola' },
@@ -213,7 +213,7 @@ export const ELENCO = [
   },
   {
     numero: 22, apelido: 'Enrique', nome: 'Quique Luna', nomeCamisa: 'Quique', referencia: 'Alessandro Del Piero', posicao: 'ATA', pe: 'D', titular: false,
-    atributos: { FOR: 81, CUR: 96, QUE: 92, PRE: 97, FRI: 94 },
+    atributos: { FOR: 92, CUR: 89, QUE: 92, PRE: 90, FRI: 94 },
     especiais: [], estilo: 'A curva no ângulo',
     uniforme: { clube: 'Man United', padrao: 'listras', camisa: '#DA291C', cores: ['#111111'], calcao: '#ffffff', meiao: '#111111', numero: '#ffffff', gola: '#111111' },
     cobranca: { postura: 'normal', distancia: 2.2, angulo: 35, passos: 3, ritmo: 0.95, batida: 'chapa', braco: 'normal', assinatura: 'Passos medidos e curva no ângulo' },
