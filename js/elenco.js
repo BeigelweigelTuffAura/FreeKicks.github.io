@@ -42,7 +42,7 @@ const PELE = {
 export const ELENCO = [
   // ---------- Titulares ----------
   {
-    numero: 1, apelido: 'Mito', nome: 'Rogério Seni', nomeCamisa: 'SENI', referencia: 'Rogério Ceni', posicao: 'GOL', pe: 'D', titular: true,
+    numero: 1, apelido: 'Lamas', nome: 'Santiago Lamas', nomeCamisa: 'Lamas', referencia: 'Rogério Ceni', posicao: 'GOL', pe: 'D', titular: true,
     atributos: { FOR: 84, CUR: 90, QUE: 76, PRE: 96, FRI: 94 },
     especiais: [], estilo: 'O goleiro artilheiro',
     uniforme: { clube: 'São Paulo (goleiro)', padrao: 'faixa', camisa: '#2a2e35', cores: ['#d0021b', '#ffffff', '#111111'], calcao: '#2a2e35', meiao: '#2a2e35', numero: '#ffffff', gola: '#d0021b' },
