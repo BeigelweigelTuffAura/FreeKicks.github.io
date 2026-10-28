@@ -18,7 +18,7 @@ export const CONFIG = {
   atritoGrama: 2.5,       // m/s² de freada quando a bola rola
 
   // Chute
-  velocidadeMin: 14,      // m/s com a barra vazia
+  velocidadeMin: 8,      // m/s com a barra vazia
   velocidadeMax: 36,      // m/s com a barra cheia (cobrador neutro; FOR muda até uns 5% para cima ou 10% para baixo)
   elevacaoBase: 16,       // graus: ângulo de saída com contato no centro da bola
   tempoCarga: 1.1,        // segundos para a barra encher
