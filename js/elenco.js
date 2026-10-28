@@ -95,7 +95,7 @@ export const ELENCO = [
     especiais: [], estilo: 'O mestre da curva',
     uniforme: { clube: 'Madrid', padrao: 'liso', camisa: '#d2a61d', cores: [], calcao: '#ffffff', meiao: '#111111', numero: '#ffffff', gola: '#ffffff' },
     cobranca: { postura: 'bracosAbertos', distancia: 3.6, angulo: 48, passos: 4, ritmo: 0.95, batida: 'chapa', braco: 'aberto', assinatura: 'Chega de longe, passos largos e braço aberto' },
-    visual: { pele: PELE.clara, cabelo: { estilo: 'moicano', cor: '#e0c070' }, barba: 'nenhuma', faixa: null, altura: 1.80, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
+    visual: { pele: PELE.clara, cabelo: { estilo: 'curto', cor: '#6F4E37' }, barba: 'nenhuma', faixa: null, altura: 1.70, porte: 'normal', coxas: 'normais', chuteira: '#111111' },
   },
   {
     numero: 10, apelido: 'Beto', nome: 'Beto Treviño', nomeCamisa: 'Beto', referencia: 'Zico', posicao: 'MEI', pe: 'D', titular: true,
